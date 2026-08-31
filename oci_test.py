@@ -36,9 +36,20 @@ def get_access_token():
         [sys.executable, TOKEN_SCRIPT],
         cwd=INTERMASS_OCI_PATH,
         capture_output=True,
-        text=True,
-        check=True
+        text=True
     )
+
+    print("TOKEN SCRIPT RETURN CODE:", result.returncode)
+    print("TOKEN SCRIPT STDOUT:", result.stdout)
+    print("TOKEN SCRIPT STDERR:", result.stderr)
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Token generation failed.\n"
+            f"Return code: {result.returncode}\n"
+            f"STDOUT: {result.stdout}\n"
+            f"STDERR: {result.stderr}"
+        )
 
     output = result.stdout.strip()
 
