@@ -14,14 +14,14 @@ load_dotenv()
 # ============================================================
 # 1. CONFIGURATION
 # ============================================================
-INTERMASS_OCI_PATH = os.getenv("INTERMASS_OCI_PATH")
+BASE_URL = "https://iaaley-test.fa.ocs.oraclecloud.com"
+
+INTERMASS_OCI_PATH = os.path.dirname(os.path.abspath(__file__))
 
 TOKEN_SCRIPT = os.path.join(
     INTERMASS_OCI_PATH,
     "oci_generate_token.py"
 )
-
-BASE_URL = os.getenv("BASE_URL")
 
 
 
