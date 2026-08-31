@@ -7,123 +7,36 @@ import requests
 import time
 import sys
 from dotenv import load_dotenv
-
+from generate_token import get_access_token
 load_dotenv()
 
 
-# Get the root directory of the deployed project
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Intermass_OCI folder inside the deployed project
-INTERMASS_OCI_PATH = os.path.join(
-    BASE_DIR,
-    "Intermass_OCI"
-)
 
-# Token generation script
-TOKEN_SCRIPT = os.path.join(
-    INTERMASS_OCI_PATH,
-    "oci_generate_token.py"
-)
+# ============================================================
+# BASE URL
+# ============================================================
 
 BASE_URL = os.getenv("BASE_URL")
 
 
 # ============================================================
-# 2. GET ACCESS TOKEN
+# GET ACCESS TOKEN
 # ============================================================
 
-def get_access_token():
+def get_bearer_token():
 
     print("\nGenerating fresh access token...")
 
-    print("OCI folder:", INTERMASS_OCI_PATH)
-    print("Token script:", TOKEN_SCRIPT)
-
-    # Check if folder exists
-    if not os.path.isdir(INTERMASS_OCI_PATH):
-        raise FileNotFoundError(
-            f"Intermass_OCI folder not found: {INTERMASS_OCI_PATH}"
-        )
-
-    # Check if token script exists
-    if not os.path.isfile(TOKEN_SCRIPT):
-        raise FileNotFoundError(
-            f"oci_generate_token.py not found: {TOKEN_SCRIPT}"
-        )
-
-    # Run the token generation script
-    result = subprocess.run(
-        [sys.executable, TOKEN_SCRIPT],
-        cwd=INTERMASS_OCI_PATH,
-        capture_output=True,
-        text=True,
-        check=True
-    )
-
-    output = result.stdout.strip()
-
-    if not output:
-        raise RuntimeError(
-            "Token generation returned empty output."
-        )
-
-    print("Token script output received.")
-
-    return output
-
-
-    # --------------------------------------------------------
-    # Find JSON inside token script output
-    # --------------------------------------------------------
-
-    json_start = output.find("{")
-
-    if json_start == -1:
-        raise RuntimeError(
-            "Token JSON not found."
-        )
-
-    json_text = output[json_start:]
-
-    # --------------------------------------------------------
-    # Convert JSON to Python dictionary
-    # --------------------------------------------------------
-
-    try:
-
-        token_response = json.loads(
-            json_text
-        )
-
-    except json.JSONDecodeError as e:
-
-        raise RuntimeError(
-            f"Could not parse token JSON: {e}"
-        )
-
-    # --------------------------------------------------------
-    # Extract access_token
-    # --------------------------------------------------------
-
-    token = token_response.get(
-        "access_token"
-    )
+    token = get_access_token()
 
     if not token:
-
         raise RuntimeError(
-            "access_token not found in token response."
+            "Access token was not returned."
         )
 
-    print(
-        "Access token extracted successfully."
-    )
-
-    print(
-        "Token length:",
-        len(token)
-    )
+    print("Access token extracted successfully.")
+    print("Token length:", len(token))
 
     return token
 
