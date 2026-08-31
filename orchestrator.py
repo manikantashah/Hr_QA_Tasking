@@ -1,0 +1,4158 @@
+# ============================================================
+# orchestrator.py
+# ============================================================
+
+import json
+from datetime import datetime
+
+from agents import AGENTS
+from oci_test import call_agent
+from state import TaskState
+
+from candidate_resolver import resolve_candidate
+from interviewer_resolver import resolve_interviewers
+
+
+# ============================================================
+# SAFE JSON PARSER
+# ============================================================
+
+def safe_json_loads(value):
+    """
+    Safely parse JSON returned by Oracle AI Agent.
+
+    Handles:
+        1. Normal JSON
+        2. JSON with surrounding whitespace
+        3. JSON followed by extra text
+        4. JSON followed by another JSON object
+        5. Already parsed dict/list values
+    """
+
+    if value is None:
+        return None
+
+    if isinstance(value, (dict, list)):
+        return value
+
+    if not isinstance(value, str):
+        return value
+
+    value = value.strip()
+
+    if not value:
+        return None
+
+    try:
+        return json.loads(value)
+
+    except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+
+    try:
+        parsed, end_index = decoder.raw_decode(value)
+
+        extra_content = value[end_index:].strip()
+
+        if extra_content:
+            print(
+                "\nWARNING: Extra data detected in Oracle Agent output."
+            )
+
+            print(
+                "Ignored content:"
+            )
+
+            print(
+                repr(extra_content)
+            )
+
+        return parsed
+
+    except json.JSONDecodeError as e:
+
+        print(
+            "\nJSON PARSING FAILED"
+        )
+
+        print(
+            "Error:",
+            str(e)
+        )
+
+        print(
+            "Raw value:"
+        )
+
+        print(
+            repr(value)
+        )
+
+        return None
+
+
+# ============================================================
+# GENERAL HELPERS
+# ============================================================
+
+def print_agent_result(agent_name, result):
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        f"{agent_name} RESULT"
+    )
+
+    print(
+        "========================================"
+    )
+
+    print(
+        json.dumps(
+            result,
+            indent=4,
+            default=str
+        )
+    )
+
+
+# ============================================================
+# BUILD AGENT BODY
+# ============================================================
+
+def build_agent_body(agent_name, parameters):
+
+    agent_config = AGENTS.get(
+        agent_name
+    )
+
+    if agent_config is None:
+
+        raise ValueError(
+            f"Agent not found in agents.py: {agent_name}"
+        )
+
+    body_template = (
+        agent_config
+        .get("body", {})
+        .get("parameters", {})
+    )
+
+    body = {
+        "parameters": {}
+    }
+
+    for parameter_name, template_value in body_template.items():
+
+        # ----------------------------------------------------
+        # triggerType is always REST
+        # ----------------------------------------------------
+
+        if parameter_name == "triggerType":
+
+            body["parameters"][parameter_name] = "REST"
+
+            continue
+
+        # ----------------------------------------------------
+        # Dynamic value
+        # ----------------------------------------------------
+
+        if parameter_name in parameters:
+
+            dynamic_value = parameters.get(
+                parameter_name
+            )
+
+            if dynamic_value is not None:
+
+                body["parameters"][parameter_name] = dynamic_value
+
+                continue
+
+        # ----------------------------------------------------
+        # Template/default value
+        # ----------------------------------------------------
+
+        body["parameters"][parameter_name] = template_value
+
+    # --------------------------------------------------------
+    # Add parameters not present in template
+    # --------------------------------------------------------
+
+    for parameter_name, dynamic_value in parameters.items():
+
+        if parameter_name not in body["parameters"]:
+
+            if dynamic_value is not None:
+
+                body["parameters"][parameter_name] = dynamic_value
+
+    return body
+
+
+# ============================================================
+# NORMALIZE LIST
+# ============================================================
+
+def normalize_list(value):
+
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+
+        value = value.strip()
+
+        if not value:
+            return []
+
+        return [value]
+
+    if isinstance(value, (list, tuple, set)):
+
+        result = []
+
+        for item in value:
+
+            if item is None:
+                continue
+
+            item = str(item).strip()
+
+            if item:
+                result.append(item)
+
+        return result
+
+    return [
+        str(value).strip()
+    ]
+
+
+# ============================================================
+# VALIDATE INTERVIEW DATE/TIME
+# ============================================================
+
+def validate_interview_datetime(
+    start_datetime,
+    end_datetime
+):
+
+    if not start_datetime or not end_datetime:
+
+        return {
+            "valid": False,
+
+            "message":
+                "Interview start and end time are required."
+        }
+
+    try:
+
+        start_dt = datetime.fromisoformat(
+            start_datetime
+        )
+
+        end_dt = datetime.fromisoformat(
+            end_datetime
+        )
+
+    except ValueError:
+
+        return {
+            "valid": False,
+
+            "message":
+                "The interview date/time format is invalid."
+        }
+
+    # --------------------------------------------------------
+    # START MUST BE BEFORE END
+    # --------------------------------------------------------
+
+    if start_dt >= end_dt:
+
+        return {
+            "valid": False,
+
+            "message":
+                (
+                    "The interview start time must be "
+                    "before the end time."
+                )
+        }
+
+    # --------------------------------------------------------
+    # CURRENT TIME
+    # --------------------------------------------------------
+
+    if start_dt.tzinfo:
+
+        now = datetime.now(
+            tz=start_dt.tzinfo
+        )
+
+    else:
+
+        now = datetime.now()
+
+    # --------------------------------------------------------
+    # CHECK PAST TIME
+    # --------------------------------------------------------
+
+    if start_dt < now:
+
+        return {
+            "valid": False,
+
+            "message":
+                (
+                    f"The requested interview time "
+                    f"{start_datetime} to {end_datetime} "
+                    f"has already passed. "
+                    f"Please provide a future date and time."
+                )
+        }
+
+    return {
+        "valid": True
+    }
+
+
+# ============================================================
+# UNWRAP AGENT OUTPUT
+# ============================================================
+
+def unwrap_agent_output(agent_result):
+
+    if not isinstance(
+        agent_result,
+        dict
+    ):
+
+        return agent_result
+
+    output = agent_result.get(
+        "output"
+    )
+
+    if output is None:
+        return agent_result
+
+    if isinstance(output, str):
+
+        parsed = safe_json_loads(
+            output
+        )
+
+        if parsed is not None:
+            return parsed
+
+        return output
+
+    return output
+
+
+# ============================================================
+# EXTRACT ALL INTERVIEWERS
+# ============================================================
+
+def extract_all_interviewers(
+    interviewer_result
+):
+
+    matches = []
+
+    try:
+
+        output = (
+            interviewer_result.get("output")
+            if isinstance(
+                interviewer_result,
+                dict
+            )
+            else None
+        )
+
+        if not output:
+            return matches
+
+        # ----------------------------------------------------
+        # Parse Oracle string output
+        # ----------------------------------------------------
+
+        if isinstance(
+            output,
+            str
+        ):
+
+            output = safe_json_loads(
+                output
+            )
+
+            if output is None:
+                return matches
+
+        if not isinstance(
+            output,
+            dict
+        ):
+
+            return matches
+
+        # ----------------------------------------------------
+        # Standard format
+        # ----------------------------------------------------
+
+        result = output.get(
+            "result",
+            []
+        )
+
+        # ----------------------------------------------------
+        # Sometimes result is JSON string
+        # ----------------------------------------------------
+
+        if isinstance(
+            result,
+            str
+        ):
+
+            result = safe_json_loads(
+                result
+            )
+
+            if result is None:
+                return matches
+
+        if isinstance(
+            result,
+            dict
+        ):
+
+            result = result.get(
+                "result",
+                result.get(
+                    "interviewers",
+                    []
+                )
+            )
+
+        if not isinstance(
+            result,
+            list
+        ):
+
+            return matches
+
+        # ----------------------------------------------------
+        # Extract interviewer information
+        # ----------------------------------------------------
+
+        for interviewer in result:
+
+            if not isinstance(
+                interviewer,
+                dict
+            ):
+
+                continue
+
+            name = (
+                interviewer.get("DisplayName")
+                or interviewer.get("displayName")
+                or interviewer.get("Name")
+                or interviewer.get("name")
+            )
+
+            email = (
+                interviewer.get("WorkEmail")
+                or interviewer.get("workEmail")
+                or interviewer.get("Email")
+                or interviewer.get("email")
+            )
+
+            if not name:
+                continue
+
+            matches.append(
+                {
+                    "actual_name":
+                        str(name).strip(),
+
+                    "email":
+                        str(email).strip()
+                        if email
+                        else None
+                }
+            )
+
+        return matches
+
+    except Exception as e:
+
+        print(
+            f"Error extracting interviewers: {str(e)}"
+        )
+
+        return []
+
+
+# ============================================================
+# INTERVIEWER LIST FLOW
+# ============================================================
+
+def interviewer_list_flow(
+    state: TaskState
+):
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "START INTERVIEWER LIST FLOW"
+    )
+
+    print(
+        "========================================"
+    )
+
+    requisition_number = state.get(
+        "requisition_number"
+    )
+
+    if not requisition_number:
+
+        return {
+            "waiting_for_user": True,
+
+            "missing_information":
+                ["requisition_number"],
+
+            "result_summary":
+                "Please provide the requisition number."
+        }
+
+    # ========================================================
+    # CALL INTERVIEWERDATA
+    # ========================================================
+
+    interviewer_body = build_agent_body(
+        "INTERVIEWERDATA",
+        {
+            "RequisitionNumber":
+                requisition_number
+        }
+    )
+
+    print(
+        "\nCalling INTERVIEWERDATA..."
+    )
+
+    try:
+
+        interviewer_result = call_agent(
+            "INTERVIEWERDATA",
+            interviewer_body
+        )
+
+    except Exception as e:
+
+        return {
+            "waiting_for_user": False,
+
+            "interviewer_result": None,
+
+            "result_summary":
+                (
+                    f"Unable to retrieve interviewers: "
+                    f"{str(e)}"
+                )
+        }
+
+    print_agent_result(
+        "INTERVIEWERDATA",
+        interviewer_result
+    )
+
+    # ========================================================
+    # EXTRACT INTERVIEWERS
+    # ========================================================
+
+    interviewers = extract_all_interviewers(
+        interviewer_result
+    )
+
+    if not interviewers:
+
+        return {
+            "interviewer_result":
+                interviewer_result,
+
+            "requested_interviewers":
+                [],
+
+            "interviewer_emails":
+                [],
+
+            "waiting_for_user":
+                False,
+
+            "awaiting_confirmation":
+                False,
+
+            "result_summary":
+                (
+                    f"No interviewers were found for "
+                    f"requisition {requisition_number}."
+                )
+        }
+
+    # ========================================================
+    # BUILD RESPONSE
+    # ========================================================
+
+    interviewer_text = []
+
+    for interviewer in interviewers:
+
+        name = interviewer.get(
+            "actual_name"
+        )
+
+        email = interviewer.get(
+            "email"
+        )
+
+        if email:
+
+            interviewer_text.append(
+                f"- {name} ({email})"
+            )
+
+        else:
+
+            interviewer_text.append(
+                f"- {name}"
+            )
+
+    return {
+        "interviewer_result":
+            interviewer_result,
+
+        "requested_interviewers":
+            [
+                item.get("actual_name")
+                for item in interviewers
+                if item.get("actual_name")
+            ],
+
+        "interviewer_emails":
+            [
+                item.get("email")
+                for item in interviewers
+                if item.get("email")
+            ],
+
+        "waiting_for_user":
+            False,
+
+        "awaiting_confirmation":
+            False,
+
+        "result_summary":
+            (
+                f"Interviewers for requisition "
+                f"{requisition_number}:\n"
+                +
+                "\n".join(
+                    interviewer_text
+                )
+            )
+    }
+
+
+# ============================================================
+# EXTRACT COMMON SLOTS
+# ============================================================
+
+def extract_common_slots(
+    agent_result
+):
+
+    data = unwrap_agent_output(
+        agent_result
+    )
+
+    if isinstance(
+        data,
+        dict
+    ):
+
+        slots = (
+            data.get("commonSlots")
+            or data.get("common_slots")
+            or data.get("meetingTimeSuggestions")
+        )
+
+        if isinstance(
+            slots,
+            str
+        ):
+
+            slots = safe_json_loads(
+                slots
+            )
+
+        if isinstance(
+            slots,
+            list
+        ):
+
+            return slots
+
+        # ----------------------------------------------------
+        # Nested result
+        # ----------------------------------------------------
+
+        result = data.get(
+            "result"
+        )
+
+        if isinstance(
+            result,
+            str
+        ):
+
+            result = safe_json_loads(
+                result
+            )
+
+        if isinstance(
+            result,
+            dict
+        ):
+
+            slots = (
+                result.get("commonSlots")
+                or result.get("common_slots")
+                or result.get("meetingTimeSuggestions")
+                or []
+            )
+
+            if isinstance(
+                slots,
+                list
+            ):
+
+                return slots
+
+    return []
+
+
+# ============================================================
+# AVAILABILITY FLOW
+# ============================================================
+
+def availability_flow(
+    state: TaskState
+):
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "START AVAILABILITY FLOW"
+    )
+
+    print(
+        "========================================"
+    )
+
+    interviewer_names = normalize_list(
+        state.get(
+            "interviewer_names",
+            []
+        )
+    )
+
+    requisition_number = state.get(
+        "requisition_number"
+    )
+
+    date = state.get(
+        "date"
+    )
+
+    # ========================================================
+    # REQUIRED DATA
+    # ========================================================
+
+    missing = []
+
+    if not requisition_number:
+        missing.append(
+            "requisition_number"
+        )
+
+    if not date:
+        missing.append(
+            "date"
+        )
+
+    if missing:
+
+        return {
+            "waiting_for_user": True,
+
+            "missing_information":
+                missing,
+
+            "result_summary":
+                (
+                    "Please provide the requisition "
+                    "number and date."
+                )
+        }
+
+    # ========================================================
+    # INTERVIEWERDATA
+    # ========================================================
+
+    interviewer_body = build_agent_body(
+        "INTERVIEWERDATA",
+        {
+            "RequisitionNumber":
+                requisition_number
+        }
+    )
+
+    print(
+        "\nCalling INTERVIEWERDATA..."
+    )
+
+    try:
+
+        interviewer_result = call_agent(
+            "INTERVIEWERDATA",
+            interviewer_body
+        )
+
+    except Exception as e:
+
+        return {
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"Unable to retrieve interviewer "
+                    f"data: {str(e)}"
+                )
+        }
+
+    print_agent_result(
+        "INTERVIEWERDATA",
+        interviewer_result
+    )
+
+    # ========================================================
+    # RESOLVE USER-SPECIFIED INTERVIEWERS
+    # ========================================================
+
+    if interviewer_names:
+
+        interviewer_match = resolve_interviewers(
+            interviewer_result,
+            interviewer_names
+        )
+
+        print(
+            "\nINTERVIEWER MATCH RESULT:"
+        )
+
+        print(
+            json.dumps(
+                interviewer_match,
+                indent=4,
+                default=str
+            )
+        )
+
+        status = interviewer_match.get(
+            "status"
+        )
+
+        # ----------------------------------------------------
+        # NOT FOUND
+        # ----------------------------------------------------
+
+        if status == "NOT_FOUND":
+
+            not_found = interviewer_match.get(
+                "not_found",
+                interviewer_names
+            )
+
+            return {
+                "interviewer_result":
+                    interviewer_result,
+
+                "requested_interviewers":
+                    interviewer_names,
+
+                "interviewer_emails":
+                    [],
+
+                "waiting_for_user":
+                    True,
+
+                "awaiting_confirmation":
+                    False,
+
+                "confirmation_type":
+                    "interviewer",
+
+                "original_interviewer_input":
+                    interviewer_names,
+
+                "result_summary":
+                    (
+                        "I could not find the following "
+                        "interviewer(s): "
+                        +
+                        ", ".join(
+                            not_found
+                        )
+                    )
+            }
+
+        # ----------------------------------------------------
+        # SUGGESTION
+        # ----------------------------------------------------
+
+        if status == "SUGGEST":
+
+            suggestions = interviewer_match.get(
+                "suggestions",
+                []
+            )
+
+            suggested_names = []
+
+            for suggestion in suggestions:
+
+                if not isinstance(
+                    suggestion,
+                    dict
+                ):
+
+                    continue
+
+                actual_name = (
+                    suggestion.get("actual_name")
+                    or suggestion.get("name")
+                    or suggestion.get("DisplayName")
+                )
+
+                if (
+                    actual_name
+                    and
+                    actual_name not in suggested_names
+                ):
+
+                    suggested_names.append(
+                        actual_name
+                    )
+
+            if not suggested_names:
+
+                return {
+                    "interviewer_result":
+                        interviewer_result,
+
+                    "requested_interviewers":
+                        interviewer_names,
+
+                    "waiting_for_user":
+                        True,
+
+                    "awaiting_confirmation":
+                        False,
+
+                    "confirmation_type":
+                        "interviewer",
+
+                    "original_interviewer_input":
+                        interviewer_names,
+
+                    "requisition_number":
+                        requisition_number,
+
+                    "date":
+                        date,
+
+                    "result_summary":
+                        (
+                            "I could not find an interviewer "
+                            "matching "
+                            +
+                            ", ".join(
+                                interviewer_names
+                            )
+                        )
+                }
+
+            # ------------------------------------------------
+            # Single suggestion
+            # ------------------------------------------------
+
+            if len(
+                suggested_names
+            ) == 1:
+
+                suggested_name = suggested_names[0]
+
+                return {
+                    "interviewer_result":
+                        interviewer_result,
+
+                    "requested_interviewers":
+                        interviewer_names,
+
+                    "waiting_for_user":
+                        True,
+
+                    "awaiting_confirmation":
+                        True,
+
+                    "confirmation_type":
+                        "interviewer",
+
+                    "original_interviewer_input":
+                        interviewer_names,
+
+                    "suggested_interviewer":
+                        suggested_name,
+
+                    "suggested_interviewers":
+                        suggested_names,
+
+                    "requisition_number":
+                        requisition_number,
+
+                    "interviewer_names":
+                        interviewer_names,
+
+                    "date":
+                        date,
+
+                    "result_summary":
+                        (
+                            f"I couldn't find an exact "
+                            f"match for "
+                            f"'{', '.join(interviewer_names)}'. "
+                            f"Did you mean "
+                            f"'{suggested_name}'?"
+                        )
+                }
+
+            # ------------------------------------------------
+            # Multiple suggestions
+            # ------------------------------------------------
+
+            options_text = "\n".join(
+                f"{index + 1}. {name}"
+                for index, name
+                in enumerate(
+                    suggested_names
+                )
+            )
+
+            return {
+                "interviewer_result":
+                    interviewer_result,
+
+                "requested_interviewers":
+                    interviewer_names,
+
+                "waiting_for_user":
+                    True,
+
+                "awaiting_confirmation":
+                    True,
+
+                "confirmation_type":
+                    "interviewer",
+
+                "original_interviewer_input":
+                    interviewer_names,
+
+                "suggested_interviewers":
+                    suggested_names,
+
+                "requisition_number":
+                    requisition_number,
+
+                "interviewer_names":
+                    interviewer_names,
+
+                "date":
+                    date,
+
+                "result_summary":
+                    (
+                        f"I found multiple interviewers "
+                        f"matching "
+                        f"'{', '.join(interviewer_names)}'. "
+                        f"Please select one:\n\n"
+                        f"{options_text}"
+                    )
+            }
+
+        matches = interviewer_match.get(
+            "matches",
+            []
+        )
+
+    else:
+
+        # ====================================================
+        # NO INTERVIEWER SPECIFIED
+        # Use ALL interviewers
+        # ====================================================
+
+        matches = extract_all_interviewers(
+            interviewer_result
+        )
+
+        if not matches:
+
+            return {
+                "interviewer_result":
+                    interviewer_result,
+
+                "requested_interviewers":
+                    [],
+
+                "interviewer_emails":
+                    [],
+
+                "waiting_for_user":
+                    False,
+
+                "result_summary":
+                    (
+                        "No interviewers were found for "
+                        f"requisition {requisition_number}."
+                    )
+            }
+
+    # ========================================================
+    # CANONICAL NAMES
+    # ========================================================
+
+    canonical_names = []
+
+    for item in matches:
+
+        if not isinstance(
+            item,
+            dict
+        ):
+
+            continue
+
+        name = item.get(
+            "actual_name"
+        )
+
+        if (
+            name
+            and
+            name not in canonical_names
+        ):
+
+            canonical_names.append(
+                name
+            )
+
+    # ========================================================
+    # EMAILS
+    # ========================================================
+
+    interviewer_emails = []
+
+    for item in matches:
+
+        if not isinstance(
+            item,
+            dict
+        ):
+
+            continue
+
+        email = item.get(
+            "email"
+        )
+
+        if (
+            email
+            and
+            email not in interviewer_emails
+        ):
+
+            interviewer_emails.append(
+                email
+            )
+
+    if not interviewer_emails:
+
+        return {
+            "interviewer_result":
+                interviewer_result,
+
+            "requested_interviewers":
+                canonical_names,
+
+            "interviewer_emails":
+                [],
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    "No email addresses were found "
+                    "for the interviewers."
+                )
+        }
+
+    # ========================================================
+    # AVAILABILITY AGENT
+    # ========================================================
+
+    availability_parameters = {
+        "interviewer_emails":
+            interviewer_emails,
+
+        "date":
+            date,
+
+        "meeting_duration_minutes":
+            30
+    }
+
+    availability_body = build_agent_body(
+        "INTERVIEWER_AVAILABILITY",
+        availability_parameters
+    )
+
+    print(
+        "\nCalling INTERVIEWER_AVAILABILITY..."
+    )
+
+    print(
+        json.dumps(
+            availability_body,
+            indent=4,
+            default=str
+        )
+    )
+
+    try:
+
+        availability_result = call_agent(
+            "INTERVIEWER_AVAILABILITY",
+            availability_body
+        )
+
+    except Exception as e:
+
+        return {
+            "interviewer_result":
+                interviewer_result,
+
+            "interviewer_names":
+                canonical_names,
+
+            "interviewer_emails":
+                interviewer_emails,
+
+            "availability_result":
+                None,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    "Interviewer availability check "
+                    f"failed: {str(e)}"
+                )
+        }
+
+    print_agent_result(
+        "INTERVIEWER_AVAILABILITY",
+        availability_result
+    )
+
+    # ========================================================
+    # COMMON SLOTS
+    # ========================================================
+
+    common_slots = extract_common_slots(
+        availability_result
+    )
+
+    if not common_slots:
+
+        return {
+            "interviewer_result":
+                interviewer_result,
+
+            "requested_interviewers":
+                canonical_names,
+
+            "interviewer_emails":
+                interviewer_emails,
+
+            "availability_result":
+                availability_result,
+
+            "common_slots":
+                [],
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    "No common free time was found for "
+                    f"the interviewer(s) on {date}."
+                )
+        }
+
+    return {
+        "interviewer_result":
+            interviewer_result,
+
+        "requested_interviewers":
+            canonical_names,
+
+        "interviewer_emails":
+            interviewer_emails,
+
+        "availability_result":
+            availability_result,
+
+        "common_slots":
+            common_slots,
+
+        "waiting_for_user":
+            False,
+
+        "awaiting_confirmation":
+            False,
+
+        "result_summary":
+            (
+                f"Available common slots found for "
+                f"{date}."
+            )
+    }
+
+
+# ============================================================
+# CHECK REQUESTED SLOT
+# ============================================================
+
+def is_requested_slot_available(
+    availability_result,
+    requested_start,
+    requested_end
+):
+
+    try:
+
+        data = unwrap_agent_output(
+            availability_result
+        )
+
+        if not isinstance(
+            data,
+            dict
+        ):
+
+            return False
+
+        # ----------------------------------------------------
+        # Find common slots
+        # ----------------------------------------------------
+
+        common_slots = (
+            data.get("commonSlots")
+            or data.get("common_slots")
+        )
+
+        if common_slots is None:
+
+            result = data.get(
+                "result"
+            )
+
+            if isinstance(
+                result,
+                str
+            ):
+
+                result = safe_json_loads(
+                    result
+                )
+
+            if isinstance(
+                result,
+                dict
+            ):
+
+                common_slots = (
+                    result.get("commonSlots")
+                    or result.get("common_slots")
+                )
+
+        if not isinstance(
+            common_slots,
+            list
+        ):
+
+            return False
+
+        requested_start_dt = datetime.fromisoformat(
+            normalize_datetime_string(
+                requested_start
+            )
+        )
+
+        requested_end_dt = datetime.fromisoformat(
+            normalize_datetime_string(
+                requested_end
+            )
+        )
+
+        # ----------------------------------------------------
+        # Compare requested slot
+        # ----------------------------------------------------
+
+        for slot in common_slots:
+
+            if not isinstance(
+                slot,
+                dict
+            ):
+
+                continue
+
+            slot_start = (
+                slot.get("startDateTime")
+                or slot.get("start_datetime")
+            )
+
+            slot_end = (
+                slot.get("endDateTime")
+                or slot.get("end_datetime")
+            )
+
+            if not slot_start or not slot_end:
+                continue
+
+            slot_start_dt = datetime.fromisoformat(
+                normalize_datetime_string(
+                    slot_start
+                )
+            )
+
+            slot_end_dt = datetime.fromisoformat(
+                normalize_datetime_string(
+                    slot_end
+                )
+            )
+
+            # ------------------------------------------------
+            # Exact match
+            # ------------------------------------------------
+
+            if (
+                slot_start_dt == requested_start_dt
+                and
+                slot_end_dt == requested_end_dt
+            ):
+
+                print(
+                    "\nREQUESTED SLOT IS AVAILABLE"
+                )
+
+                print(
+                    "Requested:",
+                    requested_start,
+                    "to",
+                    requested_end
+                )
+
+                print(
+                    "Matched:",
+                    slot_start,
+                    "to",
+                    slot_end
+                )
+
+                return True
+
+            # ------------------------------------------------
+            # Requested slot fits inside larger slot
+            # ------------------------------------------------
+
+            if (
+                slot_start_dt <= requested_start_dt
+                and
+                slot_end_dt >= requested_end_dt
+            ):
+
+                print(
+                    "\nREQUESTED SLOT FITS INSIDE AVAILABLE SLOT"
+                )
+
+                print(
+                    "Available:",
+                    slot_start,
+                    "to",
+                    slot_end
+                )
+
+                print(
+                    "Requested:",
+                    requested_start,
+                    "to",
+                    requested_end
+                )
+
+                return True
+
+        print(
+            "\nREQUESTED SLOT IS NOT AVAILABLE"
+        )
+
+        return False
+
+    except Exception as e:
+
+        print(
+            "\nERROR CHECKING REQUESTED SLOT:"
+        )
+
+        print(
+            str(e)
+        )
+
+        return False
+
+
+# ============================================================
+# NORMALIZE DATETIME STRING
+# ============================================================
+
+def normalize_datetime_string(
+    value
+):
+
+    if not isinstance(
+        value,
+        str
+    ):
+
+        return value
+
+    value = value.strip()
+
+    try:
+
+        parsed = datetime.fromisoformat(
+            value
+        )
+
+        return parsed.isoformat()
+
+    except ValueError:
+
+        return value
+
+
+# ============================================================
+# SCHEDULING FLOW
+# ============================================================
+
+def scheduling_flow(
+    state: TaskState
+):
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "START SCHEDULING FLOW"
+    )
+
+    print(
+        "========================================"
+    )
+
+    candidate_name = state.get(
+        "candidate_name"
+    )
+
+    requisition_number = state.get(
+        "requisition_number"
+    )
+
+    interviewer_names = normalize_list(
+        state.get(
+            "interviewer_names",
+            []
+        )
+    )
+
+    start_datetime = state.get(
+        "start_datetime"
+    )
+
+    end_datetime = state.get(
+        "end_datetime"
+    )
+
+    subject = (
+        state.get("subject")
+        or
+        "Interview"
+    )
+
+    # ========================================================
+    # BASIC VALIDATION
+    # ========================================================
+
+    if not candidate_name:
+
+        return {
+            "waiting_for_user":
+                True,
+
+            "missing_information":
+                ["candidate_name"],
+
+            "result_summary":
+                "Candidate name is required."
+        }
+
+    if not requisition_number:
+
+        return {
+            "waiting_for_user":
+                True,
+
+            "missing_information":
+                ["requisition_number"],
+
+            "result_summary":
+                (
+                    f"Which requisition number is "
+                    f"{candidate_name} associated with?"
+                )
+        }
+
+    if not interviewer_names:
+
+        return {
+            "waiting_for_user":
+                True,
+
+            "missing_information":
+                ["interviewer_name"],
+
+            "result_summary":
+                (
+                    "Which interviewer would you like "
+                    "to schedule with?"
+                )
+        }
+
+    if not start_datetime or not end_datetime:
+
+        return {
+            "waiting_for_user":
+                True,
+
+            "missing_information":
+                ["interview_datetime"],
+
+            "result_summary":
+                (
+                    "Please provide the interview "
+                    "date and time."
+                )
+        }
+
+    # ========================================================
+    # VALIDATE DATETIME
+    # ========================================================
+
+    datetime_validation = (
+        validate_interview_datetime(
+            start_datetime,
+            end_datetime
+        )
+    )
+
+    if not datetime_validation["valid"]:
+
+        return {
+            "waiting_for_user":
+                True,
+
+            "missing_information":
+                ["future_interview_datetime"],
+
+            "result_summary":
+                datetime_validation["message"]
+        }
+
+    # ========================================================
+    # CANDIDATEREQUISTION
+    # ========================================================
+
+    candidate_body = build_agent_body(
+        "CANDIDATEREQUISTION",
+        {
+            "RequisitionNumber":
+                requisition_number
+        }
+    )
+
+    print(
+        "\nCalling CANDIDATEREQUISTION..."
+    )
+
+    try:
+
+        candidate_result = call_agent(
+            "CANDIDATEREQUISTION",
+            candidate_body
+        )
+
+    except Exception as e:
+
+        return {
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"Unable to retrieve candidate "
+                    f"data: {str(e)}"
+                )
+        }
+
+    print_agent_result(
+        "CANDIDATEREQUISTION",
+        candidate_result
+    )
+
+    # ========================================================
+    # RESOLVE CANDIDATE
+    # ========================================================
+
+    candidate_match = resolve_candidate(
+        candidate_result,
+        candidate_name
+    )
+
+    # ========================================================
+    # NOT FOUND
+    # ========================================================
+
+    if (
+        not candidate_match
+        or
+        candidate_match.get(
+            "status"
+        ) == "NOT_FOUND"
+    ):
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"I could not find a candidate matching "
+                    f"'{candidate_name}' in requisition "
+                    f"{requisition_number}."
+                )
+        }
+
+    # ========================================================
+    # CANDIDATE SUGGESTION
+    # ========================================================
+
+    if candidate_match.get(
+        "status"
+    ) == "SUGGEST":
+
+        suggested_name = candidate_match.get(
+            "candidate_name"
+        )
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "waiting_for_user":
+                True,
+
+            "awaiting_confirmation":
+                True,
+
+            "confirmation_type":
+                "candidate",
+
+            "original_candidate_input":
+                candidate_name,
+
+            "suggested_candidate":
+                suggested_name,
+
+            "requisition_number":
+                requisition_number,
+
+            "interviewer_names":
+                interviewer_names,
+
+            "start_datetime":
+                start_datetime,
+
+            "end_datetime":
+                end_datetime,
+
+            "subject":
+                subject,
+
+            "result_summary":
+                (
+                    f"I couldn't find an exact match for "
+                    f"'{candidate_name}'. "
+                    f"Did you mean '{suggested_name}'?"
+                )
+        }
+
+    # ========================================================
+    # CANDIDATE MATCHED
+    # ========================================================
+
+    canonical_candidate_name = (
+        candidate_match.get(
+            "candidate_name"
+        )
+    )
+
+    candidate_email = (
+        candidate_match.get(
+            "email"
+        )
+    )
+
+    job_application_id = (
+        candidate_match.get(
+            "jobApplicationId"
+        )
+    )
+
+    if not candidate_email:
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "candidate_name":
+                canonical_candidate_name,
+
+            "job_application_id":
+                job_application_id,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"Candidate "
+                    f"'{canonical_candidate_name}' "
+                    f"was found, but the email address "
+                    f"could not be found."
+                )
+        }
+
+    if not job_application_id:
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "candidate_name":
+                canonical_candidate_name,
+
+            "candidate_email":
+                candidate_email,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"JobApplicationId was not found for "
+                    f"{canonical_candidate_name}."
+                )
+        }
+
+    # ========================================================
+    # INTERVIEWERDATA
+    # ========================================================
+
+    interviewer_body = build_agent_body(
+        "INTERVIEWERDATA",
+        {
+            "RequisitionNumber":
+                requisition_number
+        }
+    )
+
+    print(
+        "\nCalling INTERVIEWERDATA..."
+    )
+
+    try:
+
+        interviewer_result = call_agent(
+            "INTERVIEWERDATA",
+            interviewer_body
+        )
+
+    except Exception as e:
+
+        return {
+            "candidate_name":
+                canonical_candidate_name,
+
+            "candidate_email":
+                candidate_email,
+
+            "job_application_id":
+                job_application_id,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"Unable to retrieve interviewer "
+                    f"data: {str(e)}"
+                )
+        }
+
+    print_agent_result(
+        "INTERVIEWERDATA",
+        interviewer_result
+    )
+
+    # ========================================================
+    # RESOLVE INTERVIEWERS
+    # ========================================================
+
+    interviewer_match = resolve_interviewers(
+        interviewer_result,
+        interviewer_names
+    )
+
+    print(
+        "\nINTERVIEWER MATCH RESULT:"
+    )
+
+    print(
+        json.dumps(
+            interviewer_match,
+            indent=4,
+            default=str
+        )
+    )
+
+    status = interviewer_match.get(
+        "status"
+    )
+
+    # ========================================================
+    # INTERVIEWER NOT FOUND
+    # ========================================================
+
+    if status == "NOT_FOUND":
+
+        not_found = interviewer_match.get(
+            "not_found",
+            interviewer_names
+        )
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "interviewer_result":
+                interviewer_result,
+
+            "waiting_for_user":
+                True,
+
+            "awaiting_confirmation":
+                False,
+
+            "confirmation_type":
+                "interviewer",
+
+            "original_interviewer_input":
+                interviewer_names,
+
+            "interviewer_names":
+                interviewer_names,
+
+            "requisition_number":
+                requisition_number,
+
+            "start_datetime":
+                start_datetime,
+
+            "end_datetime":
+                end_datetime,
+
+            "subject":
+                subject,
+
+            "candidate_name":
+                canonical_candidate_name,
+
+            "candidate_email":
+                candidate_email,
+
+            "job_application_id":
+                job_application_id,
+
+            "result_summary":
+                (
+                    "I could not find the following "
+                    "interviewer(s): "
+                    +
+                    ", ".join(
+                        not_found
+                    )
+                )
+        }
+
+    # ========================================================
+    # INTERVIEWER SUGGESTION
+    # ========================================================
+
+    if status == "SUGGEST":
+
+        suggestions = interviewer_match.get(
+            "suggestions",
+            []
+        )
+
+        suggested_names = []
+
+        for suggestion in suggestions:
+
+            if not isinstance(
+                suggestion,
+                dict
+            ):
+
+                continue
+
+            name = (
+                suggestion.get("actual_name")
+                or suggestion.get("name")
+                or suggestion.get("DisplayName")
+            )
+
+            if (
+                name
+                and
+                name not in suggested_names
+            ):
+
+                suggested_names.append(
+                    name
+                )
+
+        if not suggested_names:
+
+            return {
+                "candidate_result":
+                    candidate_result,
+
+                "interviewer_result":
+                    interviewer_result,
+
+                "waiting_for_user":
+                    True,
+
+                "awaiting_confirmation":
+                    False,
+
+                "confirmation_type":
+                    "interviewer",
+
+                "original_interviewer_input":
+                    interviewer_names,
+
+                "interviewer_names":
+                    interviewer_names,
+
+                "requisition_number":
+                    requisition_number,
+
+                "start_datetime":
+                    start_datetime,
+
+                "end_datetime":
+                    end_datetime,
+
+                "subject":
+                    subject,
+
+                "candidate_name":
+                    canonical_candidate_name,
+
+                "candidate_email":
+                    candidate_email,
+
+                "job_application_id":
+                    job_application_id,
+
+                "result_summary":
+                    (
+                        "I could not resolve the "
+                        "requested interviewer."
+                    )
+            }
+
+        if len(
+            suggested_names
+        ) == 1:
+
+            suggested_name = suggested_names[0]
+
+            return {
+                "candidate_result":
+                    candidate_result,
+
+                "interviewer_result":
+                    interviewer_result,
+
+                "waiting_for_user":
+                    True,
+
+                "awaiting_confirmation":
+                    True,
+
+                "confirmation_type":
+                    "interviewer",
+
+                "original_interviewer_input":
+                    interviewer_names,
+
+                "suggested_interviewer":
+                    suggested_name,
+
+                "suggested_interviewers":
+                    suggested_names,
+
+                "requisition_number":
+                    requisition_number,
+
+                "interviewer_names":
+                    interviewer_names,
+
+                "start_datetime":
+                    start_datetime,
+
+                "end_datetime":
+                    end_datetime,
+
+                "subject":
+                    subject,
+
+                "candidate_name":
+                    canonical_candidate_name,
+
+                "candidate_email":
+                    candidate_email,
+
+                "job_application_id":
+                    job_application_id,
+
+                "result_summary":
+                    (
+                        f"I couldn't find an exact match for "
+                        f"'{', '.join(interviewer_names)}'. "
+                        f"Did you mean "
+                        f"'{suggested_name}'?"
+                    )
+            }
+
+        options_text = "\n".join(
+            f"{index + 1}. {name}"
+            for index, name
+            in enumerate(
+                suggested_names
+            )
+        )
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "interviewer_result":
+                interviewer_result,
+
+            "waiting_for_user":
+                True,
+
+            "awaiting_confirmation":
+                True,
+
+            "confirmation_type":
+                "interviewer",
+
+            "original_interviewer_input":
+                interviewer_names,
+
+            "suggested_interviewers":
+                suggested_names,
+
+            "requisition_number":
+                requisition_number,
+
+            "interviewer_names":
+                interviewer_names,
+
+            "start_datetime":
+                start_datetime,
+
+            "end_datetime":
+                end_datetime,
+
+            "subject":
+                subject,
+
+            "candidate_name":
+                canonical_candidate_name,
+
+            "candidate_email":
+                candidate_email,
+
+            "job_application_id":
+                job_application_id,
+
+            "result_summary":
+                (
+                    f"I found multiple interviewers matching "
+                    f"'{', '.join(interviewer_names)}'. "
+                    f"Please select one:\n\n"
+                    f"{options_text}"
+                )
+        }
+
+    # ========================================================
+    # EXACT INTERVIEWER MATCHES
+    # ========================================================
+
+    matches = interviewer_match.get(
+        "matches",
+        []
+    )
+
+    if not matches:
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "interviewer_result":
+                interviewer_result,
+
+            "waiting_for_user":
+                True,
+
+            "awaiting_confirmation":
+                False,
+
+            "confirmation_type":
+                "interviewer",
+
+            "interviewer_names":
+                interviewer_names,
+
+            "requisition_number":
+                requisition_number,
+
+            "start_datetime":
+                start_datetime,
+
+            "end_datetime":
+                end_datetime,
+
+            "subject":
+                subject,
+
+            "candidate_name":
+                canonical_candidate_name,
+
+            "candidate_email":
+                candidate_email,
+
+            "job_application_id":
+                job_application_id,
+
+            "result_summary":
+                (
+                    "I could not resolve the "
+                    "requested interviewer."
+                )
+        }
+
+    # ========================================================
+    # CANONICAL INTERVIEWER NAMES
+    # ========================================================
+
+    canonical_interviewer_names = []
+
+    for item in matches:
+
+        if not isinstance(
+            item,
+            dict
+        ):
+
+            continue
+
+        name = item.get(
+            "actual_name"
+        )
+
+        if (
+            name
+            and
+            name not in canonical_interviewer_names
+        ):
+
+            canonical_interviewer_names.append(
+                name
+            )
+
+    # ========================================================
+    # INTERVIEWER EMAILS
+    # ========================================================
+
+    interviewer_emails = []
+
+    for item in matches:
+
+        if not isinstance(
+            item,
+            dict
+        ):
+
+            continue
+
+        email = item.get(
+            "email"
+        )
+
+        if (
+            email
+            and
+            email not in interviewer_emails
+        ):
+
+            interviewer_emails.append(
+                email
+            )
+
+    if not interviewer_emails:
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "interviewer_result":
+                interviewer_result,
+
+            "interviewer_names":
+                canonical_interviewer_names,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    "Interviewer email addresses "
+                    "could not be found."
+                )
+        }
+
+    if len(
+        interviewer_emails
+    ) != len(
+        canonical_interviewer_names
+    ):
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "interviewer_result":
+                interviewer_result,
+
+            "interviewer_names":
+                canonical_interviewer_names,
+
+            "interviewer_emails":
+                interviewer_emails,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    "I could not find email addresses "
+                    "for all requested interviewers."
+                )
+        }
+
+    # ========================================================
+    # AVAILABILITY
+    # ========================================================
+
+    availability_parameters = {
+        "interviewer_emails":
+            interviewer_emails,
+
+        "date":
+            start_datetime[:10],
+
+        "meeting_duration_minutes":
+            30
+    }
+
+    availability_body = build_agent_body(
+        "INTERVIEWER_AVAILABILITY",
+        availability_parameters
+    )
+
+    print(
+        "\nCalling INTERVIEWER_AVAILABILITY..."
+    )
+
+    try:
+
+        availability_result = call_agent(
+            "INTERVIEWER_AVAILABILITY",
+            availability_body
+        )
+
+    except Exception as e:
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "candidate_name":
+                canonical_candidate_name,
+
+            "candidate_email":
+                candidate_email,
+
+            "job_application_id":
+                job_application_id,
+
+            "interviewer_result":
+                interviewer_result,
+
+            "interviewer_names":
+                canonical_interviewer_names,
+
+            "interviewer_emails":
+                interviewer_emails,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"Availability check failed: "
+                    f"{str(e)}"
+                )
+        }
+
+    print_agent_result(
+        "INTERVIEWER_AVAILABILITY",
+        availability_result
+    )
+
+    # ========================================================
+    # VERIFY REQUESTED SLOT
+    # ========================================================
+
+    slot_available = (
+        is_requested_slot_available(
+            availability_result,
+            start_datetime,
+            end_datetime
+        )
+    )
+
+    if not slot_available:
+
+        common_slots = extract_common_slots(
+            availability_result
+        )
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "candidate_name":
+                canonical_candidate_name,
+
+            "candidate_email":
+                candidate_email,
+
+            "job_application_id":
+                job_application_id,
+
+            "interviewer_result":
+                interviewer_result,
+
+            "interviewers":
+                canonical_interviewer_names,
+
+            "interviewer_emails":
+                interviewer_emails,
+
+            "availability_result":
+                availability_result,
+
+            "common_slots":
+                common_slots,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"The requested interview time "
+                    f"{start_datetime} to "
+                    f"{end_datetime} "
+                    "is not available for all "
+                    "requested interviewer(s)."
+                )
+        }
+
+    # ========================================================
+    # SCHEDULE TEAMS MEETING
+    # ========================================================
+
+    scheduling_parameters = {
+        "candidateName":
+            canonical_candidate_name,
+
+        "email":
+            candidate_email,
+
+        "startDateTime":
+            start_datetime,
+
+        "endDateTime":
+            end_datetime,
+
+        "subject":
+            subject,
+
+        "interviewers":
+            canonical_interviewer_names,
+
+        "interviewersEmail":
+            interviewer_emails,
+
+        "JobApplicationId":
+            int(job_application_id)
+    }
+
+    scheduling_body = build_agent_body(
+        "SCHEDULING_TEAMS_MEETING",
+        scheduling_parameters
+    )
+
+    print(
+        "\nSCHEDULING_TEAMS_MEETING BODY"
+    )
+
+    print(
+        json.dumps(
+            scheduling_body,
+            indent=4,
+            default=str
+        )
+    )
+
+    try:
+
+        scheduling_result = call_agent(
+            "SCHEDULING_TEAMS_MEETING",
+            scheduling_body
+        )
+
+    except Exception as e:
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "candidate_name":
+                canonical_candidate_name,
+
+            "candidate_email":
+                candidate_email,
+
+            "job_application_id":
+                job_application_id,
+
+            "interviewer_result":
+                interviewer_result,
+
+            "interviewers":
+                canonical_interviewer_names,
+
+            "interviewer_emails":
+                interviewer_emails,
+
+            "availability_result":
+                availability_result,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"Interview scheduling failed: "
+                    f"{str(e)}"
+                )
+        }
+
+    print_agent_result(
+        "SCHEDULING_TEAMS_MEETING",
+        scheduling_result
+    )
+
+    # ========================================================
+    # SUCCESS
+    # ========================================================
+
+    return {
+        "candidate_result":
+            candidate_result,
+
+        "candidate_name":
+            canonical_candidate_name,
+
+        "candidate_email":
+            candidate_email,
+
+        "job_application_id":
+            job_application_id,
+
+        "interviewer_result":
+            interviewer_result,
+
+        "interviewers":
+            canonical_interviewer_names,
+
+        "interviewer_emails":
+            interviewer_emails,
+
+        "availability_result":
+            availability_result,
+
+        "scheduling_result":
+            scheduling_result,
+
+        "waiting_for_user":
+            False,
+
+        "awaiting_confirmation":
+            False,
+
+        "result_summary":
+            "Interview scheduled successfully."
+    }
+
+
+# ============================================================
+# SCREENING FLOW
+# ============================================================
+
+def screening_flow(
+    state: TaskState
+):
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "START SCREENING FLOW"
+    )
+
+    print(
+        "========================================"
+    )
+
+    requisition_number = state.get(
+        "requisition_number"
+    )
+
+    candidate_names = normalize_list(
+        state.get(
+            "candidate_names",
+            []
+        )
+    )
+
+    # ========================================================
+    # REQUIRED INFORMATION
+    # ========================================================
+
+    if not requisition_number:
+
+        return {
+            "waiting_for_user":
+                True,
+
+            "missing_information":
+                ["requisition_number"],
+
+            "result_summary":
+                (
+                    "Which requisition number are "
+                    "these candidates associated with?"
+                )
+        }
+
+    if not candidate_names:
+
+        return {
+            "waiting_for_user":
+                True,
+
+            "missing_information":
+                ["candidate_names"],
+
+            "result_summary":
+                "Please provide the candidate name(s) to screen."
+        }
+
+    # ========================================================
+    # CANDIDATEREQUISTION
+    # ========================================================
+
+    candidate_body = build_agent_body(
+        "CANDIDATEREQUISTION",
+        {
+            "RequisitionNumber":
+                requisition_number
+        }
+    )
+
+    print(
+        "\nCalling CANDIDATEREQUISTION..."
+    )
+
+    try:
+
+        candidate_result = call_agent(
+            "CANDIDATEREQUISTION",
+            candidate_body
+        )
+
+    except Exception as e:
+
+        return {
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"Unable to retrieve candidates: "
+                    f"{str(e)}"
+                )
+        }
+
+    print_agent_result(
+        "CANDIDATEREQUISTION",
+        candidate_result
+    )
+
+    # ========================================================
+    # RESOLVE EVERY CANDIDATE
+    # ========================================================
+
+    job_application_ids = []
+
+    matched_candidates = []
+
+    for requested_name in candidate_names:
+
+        candidate_match = resolve_candidate(
+            candidate_result,
+            requested_name
+        )
+
+        # ----------------------------------------------------
+        # NOT FOUND
+        # ----------------------------------------------------
+
+        if (
+            not candidate_match
+            or
+            candidate_match.get(
+                "status"
+            ) == "NOT_FOUND"
+        ):
+
+            return {
+                "candidate_result":
+                    candidate_result,
+
+                "candidate_name":
+                    requested_name,
+
+                "waiting_for_user":
+                    False,
+
+                "result_summary":
+                    (
+                        f"I could not find a candidate matching "
+                        f"'{requested_name}' in requisition "
+                        f"{requisition_number}."
+                    )
+            }
+
+        # ----------------------------------------------------
+        # SUGGESTION
+        # ----------------------------------------------------
+
+        if candidate_match.get(
+            "status"
+        ) == "SUGGEST":
+
+            suggested_name = candidate_match.get(
+                "candidate_name"
+            )
+
+            return {
+                "candidate_result":
+                    candidate_result,
+
+                "waiting_for_user":
+                    True,
+
+                "awaiting_confirmation":
+                    True,
+
+                "confirmation_type":
+                    "candidate",
+
+                "original_candidate_input":
+                    requested_name,
+
+                "suggested_candidate":
+                    suggested_name,
+
+                "candidate_names":
+                    candidate_names,
+
+                "requisition_number":
+                    requisition_number,
+
+                "result_summary":
+                    (
+                        f"I couldn't find an exact match for "
+                        f"'{requested_name}'. "
+                        f"Did you mean '{suggested_name}'?"
+                    )
+            }
+
+        # ----------------------------------------------------
+        # MATCHED CANDIDATE
+        # ----------------------------------------------------
+
+        candidate = candidate_match.get(
+            "candidate"
+        )
+
+        job_application_id = (
+            candidate_match.get(
+                "jobApplicationId"
+            )
+        )
+
+        if not job_application_id:
+
+            return {
+                "candidate_result":
+                    candidate_result,
+
+                "candidate_name":
+                    requested_name,
+
+                "waiting_for_user":
+                    False,
+
+                "result_summary":
+                    (
+                        f"JobApplicationId was not found for "
+                        f"{candidate_match.get('candidate_name')}."
+                    )
+            }
+
+        job_application_id = str(
+            job_application_id
+        )
+
+        if job_application_id not in job_application_ids:
+
+            job_application_ids.append(
+                job_application_id
+            )
+
+        matched_candidates.append(
+            candidate
+            if isinstance(
+                candidate,
+                dict
+            )
+            else {}
+        )
+
+    # ========================================================
+    # SCREENING AGENT
+    # ========================================================
+
+    screening_body = build_agent_body(
+        "SCREENINGAGENT",
+        {
+            "JobApplicationId":
+                job_application_ids
+        }
+    )
+
+    print(
+        "\nCalling SCREENINGAGENT..."
+    )
+
+    try:
+
+        screening_result = call_agent(
+            "SCREENINGAGENT",
+            screening_body
+        )
+
+    except Exception as e:
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "job_application_ids":
+                job_application_ids,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"Candidate screening failed: "
+                    f"{str(e)}"
+                )
+        }
+
+    print_agent_result(
+        "SCREENINGAGENT",
+        screening_result
+    )
+
+    return {
+        "candidate_result":
+            candidate_result,
+
+        "candidate_names":
+            [
+                candidate.get(
+                    "CandidateName"
+                )
+                for candidate in matched_candidates
+                if candidate.get(
+                    "CandidateName"
+                )
+            ],
+
+        "job_application_ids":
+            job_application_ids,
+
+        "screening_result":
+            screening_result,
+
+        "waiting_for_user":
+            False,
+
+        "awaiting_confirmation":
+            False,
+
+        "result_summary":
+            "Candidate screening completed successfully."
+    }
+
+
+# ============================================================
+# EXTRACT EMAIL CONTENT
+# ============================================================
+
+def extract_email_content(
+    agent_result
+):
+
+    if not isinstance(
+        agent_result,
+        dict
+    ):
+
+        return {}
+
+    output = agent_result.get(
+        "output"
+    )
+
+    if not output:
+        return {}
+
+    if isinstance(
+        output,
+        str
+    ):
+
+        output = safe_json_loads(
+            output
+        )
+
+        if output is None:
+            return {}
+
+    if not isinstance(
+        output,
+        dict
+    ):
+
+        return {}
+
+    # --------------------------------------------------------
+    # result
+    # --------------------------------------------------------
+
+    result = output.get(
+        "result",
+        {}
+    )
+
+    if isinstance(
+        result,
+        str
+    ):
+
+        result = safe_json_loads(
+            result
+        )
+
+        if result is None:
+            return {}
+
+    if not isinstance(
+        result,
+        dict
+    ):
+
+        return {}
+
+    # --------------------------------------------------------
+    # Nested result
+    # --------------------------------------------------------
+
+    nested_result = result.get(
+        "result",
+        result
+    )
+
+    if isinstance(
+        nested_result,
+        str
+    ):
+
+        nested_result = safe_json_loads(
+            nested_result
+        )
+
+        if nested_result is None:
+            return {}
+
+    if not isinstance(
+        nested_result,
+        dict
+    ):
+
+        return {}
+
+    # --------------------------------------------------------
+    # emails
+    # --------------------------------------------------------
+
+    emails = nested_result.get(
+        "emails",
+        []
+    )
+
+    if (
+        not isinstance(
+            emails,
+            list
+        )
+        or
+        not emails
+    ):
+
+        return {}
+
+    email_data = emails[0]
+
+    if not isinstance(
+        email_data,
+        dict
+    ):
+
+        return {}
+
+    return {
+        "name":
+            email_data.get(
+                "name"
+            ),
+
+        "subject":
+            email_data.get(
+                "subject"
+            ),
+
+        "body1":
+            email_data.get(
+                "body1"
+            ),
+
+        "body2":
+            email_data.get(
+                "body2"
+            )
+    }
+
+
+# ============================================================
+# EMAIL FLOW
+# ============================================================
+
+def email_flow(
+    state: TaskState
+):
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "START EMAIL FLOW"
+    )
+
+    print(
+        "========================================"
+    )
+
+    candidate_name = state.get(
+        "candidate_name"
+    )
+
+    requisition_number = state.get(
+        "requisition_number"
+    )
+
+    email_type = (
+        state.get("email_type")
+        or
+        "other"
+    )
+
+    # ========================================================
+    # REQUIRED INFORMATION
+    # ========================================================
+
+    missing = []
+
+    if not candidate_name:
+        missing.append(
+            "candidate_name"
+        )
+
+    if not requisition_number:
+        missing.append(
+            "requisition_number"
+        )
+
+    if missing:
+
+        return {
+            "waiting_for_user":
+                True,
+
+            "missing_information":
+                missing,
+
+            "result_summary":
+                (
+                    "Please provide the candidate "
+                    "name and requisition number."
+                )
+        }
+
+    # ========================================================
+    # CANDIDATEREQUISTION
+    # ========================================================
+
+    candidate_body = build_agent_body(
+        "CANDIDATEREQUISTION",
+        {
+            "RequisitionNumber":
+                requisition_number
+        }
+    )
+
+    print(
+        "\nCalling CANDIDATEREQUISTION..."
+    )
+
+    try:
+
+        candidate_result = call_agent(
+            "CANDIDATEREQUISTION",
+            candidate_body
+        )
+
+    except Exception as e:
+
+        return {
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"Unable to retrieve candidate: "
+                    f"{str(e)}"
+                )
+        }
+
+    print_agent_result(
+        "CANDIDATEREQUISTION",
+        candidate_result
+    )
+
+    # ========================================================
+    # RESOLVE CANDIDATE
+    # ========================================================
+
+    candidate_match = resolve_candidate(
+        candidate_result,
+        candidate_name
+    )
+
+    if (
+        not candidate_match
+        or
+        candidate_match.get(
+            "status"
+        ) == "NOT_FOUND"
+    ):
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"I could not find a candidate matching "
+                    f"'{candidate_name}' in requisition "
+                    f"{requisition_number}."
+                )
+        }
+
+    # ========================================================
+    # CANDIDATE SUGGESTION
+    # ========================================================
+
+    if candidate_match.get(
+        "status"
+    ) == "SUGGEST":
+
+        suggested_name = (
+            candidate_match.get(
+                "candidate_name"
+            )
+        )
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "waiting_for_user":
+                True,
+
+            "awaiting_confirmation":
+                True,
+
+            "confirmation_type":
+                "candidate",
+
+            "original_candidate_input":
+                candidate_name,
+
+            "suggested_candidate":
+                suggested_name,
+
+            "requisition_number":
+                requisition_number,
+
+            "email_type":
+                email_type,
+
+            "result_summary":
+                (
+                    f"I couldn't find an exact match for "
+                    f"'{candidate_name}'. "
+                    f"Did you mean '{suggested_name}'?"
+                )
+        }
+
+    # ========================================================
+    # CANDIDATE DATA
+    # ========================================================
+
+    canonical_candidate_name = (
+        candidate_match.get(
+            "candidate_name"
+        )
+    )
+
+    candidate_email = (
+        candidate_match.get(
+            "email"
+        )
+    )
+
+    job_application_id = (
+        candidate_match.get(
+            "jobApplicationId"
+        )
+    )
+
+    if not candidate_email:
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "candidate_name":
+                canonical_candidate_name,
+
+            "job_application_id":
+                job_application_id,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"Candidate "
+                    f"'{canonical_candidate_name}' "
+                    f"was found, but the email address "
+                    f"could not be found."
+                )
+        }
+
+    # ========================================================
+    # EMAIL_HR
+    # ========================================================
+
+    email_parameters = {
+        "Type":
+            email_type,
+
+        "Tone":
+            "professional",
+
+        "Email":
+            candidate_email,
+
+        "subject":
+            state.get(
+                "subject"
+            ),
+
+        "body":
+            state.get(
+                "body"
+            ),
+
+        "Note":
+            state.get(
+                "note"
+            ) or ""
+    }
+
+    email_body = build_agent_body(
+        "EMAIL_HR",
+        email_parameters
+    )
+
+    print(
+        "\nCalling EMAIL_HR..."
+    )
+
+    try:
+
+        email_result = call_agent(
+            "EMAIL_HR",
+            email_body
+        )
+
+    except Exception as e:
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "candidate_name":
+                canonical_candidate_name,
+
+            "candidate_email":
+                candidate_email,
+
+            "job_application_id":
+                job_application_id,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    f"Email generation failed: "
+                    f"{str(e)}"
+                )
+        }
+
+    print_agent_result(
+        "EMAIL_HR",
+        email_result
+    )
+
+    # ========================================================
+    # EXTRACT EMAIL
+    # ========================================================
+
+    generated_email = extract_email_content(
+        email_result
+    )
+
+    email_subject = generated_email.get(
+        "subject"
+    )
+
+    email_text = generated_email.get(
+        "body2"
+    )
+
+    if not email_subject:
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "email_generation_result":
+                email_result,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                "EMAIL_HR did not return a subject."
+        }
+
+    if not email_text:
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "email_generation_result":
+                email_result,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                "EMAIL_HR did not return a body."
+        }
+
+    # ========================================================
+    # HREMAILSEND
+    # ========================================================
+
+    send_parameters = {
+        "email":
+            candidate_email,
+
+        "subject":
+            email_subject,
+
+        "body":
+            email_text
+    }
+
+    send_body = build_agent_body(
+        "HREMAILSEND",
+        send_parameters
+    )
+
+    print(
+        "\nHREMAILSEND BODY"
+    )
+
+    print(
+        json.dumps(
+            send_body,
+            indent=4,
+            default=str
+        )
+    )
+
+    try:
+
+        send_result = call_agent(
+            "HREMAILSEND",
+            send_body
+        )
+
+    except Exception as e:
+
+        return {
+            "candidate_result":
+                candidate_result,
+
+            "candidate_name":
+                canonical_candidate_name,
+
+            "candidate_email":
+                candidate_email,
+
+            "job_application_id":
+                job_application_id,
+
+            "email_generation_result":
+                email_result,
+
+            "email_send_result":
+                None,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                f"HREMAILSEND failed: {str(e)}"
+        }
+
+    print_agent_result(
+        "HREMAILSEND",
+        send_result
+    )
+
+    return {
+        "candidate_result":
+            candidate_result,
+
+        "candidate_name":
+            canonical_candidate_name,
+
+        "candidate_email":
+            candidate_email,
+
+        "job_application_id":
+            job_application_id,
+
+        "email_generation_result":
+            email_result,
+
+        "email_send_result":
+            send_result,
+
+        "waiting_for_user":
+            False,
+
+        "awaiting_confirmation":
+            False,
+
+        "result_summary":
+            "Email sent successfully."
+    }
+
+
+# ============================================================
+# LINKEDIN JOB DESCRIPTION FLOW
+# ============================================================
+
+def linkedin_job_desc_flow(
+    state: TaskState
+):
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "START LINKEDIN JOB DESCRIPTION FLOW"
+    )
+
+    print(
+        "========================================"
+    )
+
+    job_description = state.get(
+        "job_description"
+    )
+
+    if not job_description:
+
+        return {
+            "waiting_for_user":
+                True,
+
+            "missing_information":
+                ["job_description"],
+
+            "result_summary":
+                (
+                    "Please provide the job description "
+                    "you want to post on LinkedIn."
+                )
+        }
+
+    # ========================================================
+    # LINKEDIN PARAMETERS
+    # ========================================================
+
+    linkedin_parameters = {
+        "jobDescription":
+            job_description
+    }
+
+    linkedin_body = build_agent_body(
+        "LINKEDIN_JOB_DESC",
+        linkedin_parameters
+    )
+
+    print(
+        "\nLINKEDIN_JOB_DESC BODY"
+    )
+
+    print(
+        json.dumps(
+            linkedin_body,
+            indent=4,
+            default=str
+        )
+    )
+
+    # ========================================================
+    # CALL LINKEDIN AGENT
+    # ========================================================
+
+    print(
+        "\nCalling LINKEDIN_JOB_DESC..."
+    )
+
+    try:
+
+        linkedin_result = call_agent(
+            "LINKEDIN_JOB_DESC",
+            linkedin_body
+        )
+
+    except Exception as e:
+
+        return {
+            "linkedin_result":
+                None,
+
+            "waiting_for_user":
+                False,
+
+            "result_summary":
+                (
+                    "LinkedIn job posting failed: "
+                    f"{str(e)}"
+                )
+        }
+
+    print_agent_result(
+        "LINKEDIN_JOB_DESC",
+        linkedin_result
+    )
+
+    return {
+        "linkedin_result":
+            linkedin_result,
+
+        "job_description":
+            job_description,
+
+        "waiting_for_user":
+            False,
+
+        "awaiting_confirmation":
+            False,
+
+        "result_summary":
+            (
+                "The job description was posted "
+                "to LinkedIn successfully."
+            )
+    }
+
+
+# ============================================================
+# MAIN ORCHESTRATOR
+# ============================================================
+
+def orchestrate(
+    state: TaskState
+):
+
+    task_type = state.get(
+        "task_type"
+    )
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "ORCHESTRATOR"
+    )
+
+    print(
+        "TASK:",
+        task_type
+    )
+
+    print(
+        "========================================"
+    )
+
+    if task_type == "SCREENING":
+
+        return screening_flow(
+            state
+        )
+
+    elif task_type == "LIST_INTERVIEWERS":
+
+        return interviewer_list_flow(
+            state
+        )
+
+    elif task_type == "CHECK_AVAILABILITY":
+
+        return availability_flow(
+            state
+        )
+
+    elif task_type == "SCHEDULE_INTERVIEW":
+
+        return scheduling_flow(
+            state
+        )
+
+    elif task_type == "SEND_EMAIL":
+
+        return email_flow(
+            state
+        )
+
+    elif task_type == "LINKEDIN_JOB_DESC":
+
+        return linkedin_job_desc_flow(
+            state
+        )
+
+    raise ValueError(
+        f"Unsupported task type: {task_type}"
+    )
+
+
+# ============================================================
+# OPTIONAL EXTRACTION HELPERS
+# ============================================================
+
+def extract_job_application_ids(
+    agent_result,
+    candidate_names
+):
+
+    if not isinstance(
+        agent_result,
+        dict
+    ):
+
+        return []
+
+    output = agent_result.get(
+        "output"
+    )
+
+    if output is None:
+        return []
+
+    if isinstance(
+        output,
+        str
+    ):
+
+        output = safe_json_loads(
+            output
+        )
+
+        if output is None:
+            return []
+
+    if not isinstance(
+        output,
+        dict
+    ):
+
+        return []
+
+    result = output.get(
+        "result",
+        {}
+    )
+
+    if isinstance(
+        result,
+        str
+    ):
+
+        result = safe_json_loads(
+            result
+        )
+
+        if result is None:
+            return []
+
+    if not isinstance(
+        result,
+        dict
+    ):
+
+        return []
+
+    requisitions = result.get(
+        "requisitions",
+        []
+    )
+
+    if not isinstance(
+        requisitions,
+        list
+    ):
+
+        return []
+
+    requested_names = {
+        str(name).strip().lower()
+        for name in normalize_list(
+            candidate_names
+        )
+    }
+
+    job_application_ids = []
+
+    for candidate in requisitions:
+
+        if not isinstance(
+            candidate,
+            dict
+        ):
+
+            continue
+
+        candidate_name = candidate.get(
+            "CandidateName"
+        )
+
+        if not candidate_name:
+            continue
+
+        if (
+            str(candidate_name)
+            .strip()
+            .lower()
+            in requested_names
+        ):
+
+            job_application_id = candidate.get(
+                "JobApplicationId"
+            )
+
+            if job_application_id:
+
+                value = str(
+                    job_application_id
+                )
+
+                if value not in job_application_ids:
+
+                    job_application_ids.append(
+                        value
+                    )
+
+    return job_application_ids
+
+
+# ============================================================
+# EXTRACT CANDIDATE DATA
+# ============================================================
+
+def extract_candidate_data(
+    agent_result,
+    candidate_name
+):
+
+    if not isinstance(
+        agent_result,
+        dict
+    ):
+
+        return {}
+
+    output = agent_result.get(
+        "output"
+    )
+
+    if output is None:
+        return {}
+
+    if isinstance(
+        output,
+        str
+    ):
+
+        output = safe_json_loads(
+            output
+        )
+
+        if output is None:
+            return {}
+
+    if not isinstance(
+        output,
+        dict
+    ):
+
+        return {}
+
+    result = output.get(
+        "result",
+        {}
+    )
+
+    if isinstance(
+        result,
+        str
+    ):
+
+        result = safe_json_loads(
+            result
+        )
+
+        if result is None:
+            return {}
+
+    if not isinstance(
+        result,
+        dict
+    ):
+
+        return {}
+
+    requisitions = result.get(
+        "requisitions",
+        []
+    )
+
+    if not isinstance(
+        requisitions,
+        list
+    ):
+
+        return {}
+
+    target_name = (
+        str(candidate_name)
+        .strip()
+        .lower()
+    )
+
+    for candidate in requisitions:
+
+        if not isinstance(
+            candidate,
+            dict
+        ):
+
+            continue
+
+        candidate_name_from_api = (
+            candidate.get(
+                "CandidateName"
+            )
+        )
+
+        if not candidate_name_from_api:
+            continue
+
+        if (
+            str(candidate_name_from_api)
+            .strip()
+            .lower()
+            ==
+            target_name
+        ):
+
+            return {
+                "candidate_name":
+                    candidate_name_from_api,
+
+                "email":
+                    candidate.get(
+                        "Email"
+                    ),
+
+                "jobApplicationId":
+                    candidate.get(
+                        "JobApplicationId"
+                    )
+            }
+
+    return {}
+
+
+# ============================================================
+# EXTRACT INTERVIEWER EMAILS
+# ============================================================
+
+def extract_interviewer_emails(
+    agent_result,
+    interviewer_names
+):
+
+    interviewers = extract_all_interviewers(
+        agent_result
+    )
+
+    requested_names = {
+        str(name).strip().lower()
+        for name in normalize_list(
+            interviewer_names
+        )
+    }
+
+    emails = []
+
+    for interviewer in interviewers:
+
+        display_name = str(
+            interviewer.get(
+                "actual_name",
+                ""
+            )
+        ).strip().lower()
+
+        work_email = interviewer.get(
+            "email"
+        )
+
+        if (
+            display_name
+            in requested_names
+            and
+            work_email
+        ):
+
+            emails.append(
+                work_email
+            )
+
+    return list(
+        dict.fromkeys(
+            emails
+        )
+    )

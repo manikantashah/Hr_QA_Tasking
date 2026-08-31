@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.log
+.env
+.env.*
+!.env.example
+config_cred.txt
+config_cred*.txt
+*.pem
+.vscode/
+.idea/
+.pytest_cache/
+.
+

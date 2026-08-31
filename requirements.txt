@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pandas
+pandasql
+SQLAlchemy
+requests
+python-dotenv
+pydantic
+typing-extensions
+langchain-core
+langgraph
+langchain-oci
+oci
