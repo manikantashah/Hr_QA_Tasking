@@ -20,9 +20,9 @@ INTERMASS_OCI_PATH = os.path.dirname(
 
 TOKEN_SCRIPT = os.path.join(
     INTERMASS_OCI_PATH,
+    "oci_generate",
     "oci_generate_token.py"
 )
-
 
 # ============================================================
 # 2. GET ACCESS TOKEN
