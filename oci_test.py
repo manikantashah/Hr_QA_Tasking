@@ -11,19 +11,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# ============================================================
-# 1. CONFIGURATION
-# ============================================================
 BASE_URL = "https://iaaley-test.fa.ocs.oraclecloud.com"
 
-INTERMASS_OCI_PATH = os.path.dirname(os.path.abspath(__file__))
+
+INTERMASS_OCI_PATH = os.path.dirname(
+    os.path.abspath(__file__)
+)
 
 TOKEN_SCRIPT = os.path.join(
     INTERMASS_OCI_PATH,
     "oci_generate_token.py"
 )
-
-
 
 
 # ============================================================
@@ -35,7 +33,7 @@ def get_access_token():
     print("\nGenerating fresh access token...")
 
     result = subprocess.run(
-        ["py", TOKEN_SCRIPT],
+        [sys.executable, TOKEN_SCRIPT],
         cwd=INTERMASS_OCI_PATH,
         capture_output=True,
         text=True,
@@ -50,6 +48,8 @@ def get_access_token():
         )
 
     print("Token script output received.")
+
+    return output
 
     # --------------------------------------------------------
     # Find JSON inside token script output
