@@ -11,14 +11,24 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-INTERMASS_OCI_PATH = os.getenv("INTERMASS_OCI_PATH")
+# Get the root directory of the deployed project
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Intermass_OCI folder inside the deployed project
+INTERMASS_OCI_PATH = os.path.join(
+    BASE_DIR,
+    "Intermass_OCI"
+)
+
+# Token generation script
 TOKEN_SCRIPT = os.path.join(
     INTERMASS_OCI_PATH,
     "oci_generate_token.py"
 )
 
 BASE_URL = os.getenv("BASE_URL")
+
+
 # ============================================================
 # 2. GET ACCESS TOKEN
 # ============================================================
@@ -27,24 +37,29 @@ def get_access_token():
 
     print("\nGenerating fresh access token...")
 
+    print("OCI folder:", INTERMASS_OCI_PATH)
+    print("Token script:", TOKEN_SCRIPT)
+
+    # Check if folder exists
+    if not os.path.isdir(INTERMASS_OCI_PATH):
+        raise FileNotFoundError(
+            f"Intermass_OCI folder not found: {INTERMASS_OCI_PATH}"
+        )
+
+    # Check if token script exists
+    if not os.path.isfile(TOKEN_SCRIPT):
+        raise FileNotFoundError(
+            f"oci_generate_token.py not found: {TOKEN_SCRIPT}"
+        )
+
+    # Run the token generation script
     result = subprocess.run(
         [sys.executable, TOKEN_SCRIPT],
         cwd=INTERMASS_OCI_PATH,
         capture_output=True,
-        text=True
+        text=True,
+        check=True
     )
-
-    print("TOKEN SCRIPT RETURN CODE:", result.returncode)
-    print("TOKEN SCRIPT STDOUT:", result.stdout)
-    print("TOKEN SCRIPT STDERR:", result.stderr)
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Token generation failed.\n"
-            f"Return code: {result.returncode}\n"
-            f"STDOUT: {result.stdout}\n"
-            f"STDERR: {result.stderr}"
-        )
 
     output = result.stdout.strip()
 
@@ -56,6 +71,7 @@ def get_access_token():
     print("Token script output received.")
 
     return output
+
 
     # --------------------------------------------------------
     # Find JSON inside token script output
