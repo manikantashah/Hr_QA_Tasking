@@ -14,19 +14,16 @@ load_dotenv()
 # ============================================================
 # 1. CONFIGURATION
 # ============================================================
-
-INTERMASS_OCI_PATH = (
-    r"C:\Users\SHAHGARON\Downloads\Intermass_OCI 2\Intermass_OCI"
-)
+INTERMASS_OCI_PATH = os.getenv("INTERMASS_OCI_PATH")
 
 TOKEN_SCRIPT = os.path.join(
     INTERMASS_OCI_PATH,
     "oci_generate_token.py"
 )
 
-BASE_URL = (
-    "https://iaaley-test.fa.ocs.oraclecloud.com"
-)
+BASE_URL = os.getenv("BASE_URL")
+
+
 
 
 # ============================================================
