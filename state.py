@@ -24,6 +24,13 @@ class TaskState(TypedDict, total=False):
 
 
     # ========================================================
+    # JOB REQUISITIONS
+    # ========================================================
+
+    requisition_title: Optional[str]
+
+
+    # ========================================================
     # REQUISITION
     # ========================================================
 
@@ -62,9 +69,10 @@ class TaskState(TypedDict, total=False):
 
     interviewer_emails: List[str]
 
+
     # ========================================================
-# LINKEDIN
-# ========================================================
+    # LINKEDIN
+    # ========================================================
 
     job_description: str
 
@@ -111,6 +119,10 @@ class TaskState(TypedDict, total=False):
 
     linkedin_result: Any
 
+    # NEW
+    interview_questions_result: Any
+
+
     # ========================================================
     # CONVERSATION / MISSING INFORMATION
     # ========================================================
@@ -129,18 +141,21 @@ class TaskState(TypedDict, total=False):
     # ========================================================
 
     # Original value typed by user when a typo is suspected
+
     original_candidate_input: Optional[str]
 
     original_interviewer_input: Optional[str]
 
 
     # Suggested value from Oracle data
+
     suggested_candidate: Optional[str]
 
     suggested_interviewer: Optional[str]
 
 
     # Canonical values after user confirms
+
     confirmed_candidate_name: Optional[str]
 
     confirmed_interviewer_names: List[str]
