@@ -8,7 +8,7 @@ AGENTS = {
     # 1. JOB REQUISITION HR
     # ========================================================
 
-    "JOBREQUISITIONHR": {
+    "JOB_REQUISITIONS": {
 
         "description": (
             "Gets all job requisitions and the number of "
@@ -19,7 +19,6 @@ AGENTS = {
 
             "UserInput": "string",
 
-            "AgentName": "string",
 
             "triggerType": "string"
         },
@@ -29,7 +28,6 @@ AGENTS = {
         ],
 
         "system_parameters": [
-            "AgentName",
             "triggerType"
         ],
 
@@ -39,14 +37,53 @@ AGENTS = {
                 "UserInput":
                     "4",
 
-                "AgentName":
-                    "job_requisition_hr",
-
                 "triggerType":
                     "REST"
             }
         }
     },
+
+    "INTERVIEWQUESTIONS": {
+
+    "description": (
+        "Generates interview questions for a job requisition."
+    ),
+
+    "parameters": {
+
+        "AgentName": "string",
+
+        "RequisitionNumberInt": "string",
+
+        "triggerType": "string"
+    },
+
+    "user_parameters": [
+        "AgentName",
+        "RequisitionNumberInt"
+    ],
+
+    "system_parameters": [
+        "triggerType"
+    ],
+
+    "body": {
+
+        "parameters": {
+
+            "AgentName":
+                "interview_questions",
+
+            "RequisitionNumberInt":
+                None,
+
+            "triggerType":
+                "REST"
+        }
+    }
+},
+
+
 
 
     # ========================================================
@@ -289,9 +326,7 @@ AGENTS = {
     },
 
 
-    # ========================================================
-    # 6. INTERVIEWER AVAILABILITY
-    # ========================================================
+  
 
     # ========================================================
 # 6. INTERVIEWER AVAILABILITY
