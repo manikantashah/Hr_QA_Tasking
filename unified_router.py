@@ -1,3 +1,4 @@
+
 # ============================================================
 # unified_router.py
 # ============================================================
@@ -69,11 +70,15 @@ def extract_json_object(
         # ----------------------------------------------------
 
         if escape:
+
             escape = False
+
             continue
 
         if char == "\\" and in_string:
+
             escape = True
+
             continue
 
         # ----------------------------------------------------
@@ -81,10 +86,13 @@ def extract_json_object(
         # ----------------------------------------------------
 
         if char == '"':
+
             in_string = not in_string
+
             continue
 
         if in_string:
+
             continue
 
         # ----------------------------------------------------
@@ -92,6 +100,7 @@ def extract_json_object(
         # ----------------------------------------------------
 
         if char == "{":
+
             depth += 1
 
         # ----------------------------------------------------
@@ -120,14 +129,24 @@ def extract_json_object(
 
     return None
 
-def update_missing_information(state):
+
+# ============================================================
+# UPDATE MISSING INFORMATION
+# ============================================================
+
+def update_missing_information(
+    state
+):
+
     """
     Recalculate missing information based on the current state.
     """
 
     missing = []
 
-    task_type = state.get("task_type")
+    task_type = state.get(
+        "task_type"
+    )
 
     # ========================================================
     # CHECK AVAILABILITY
@@ -262,6 +281,8 @@ def update_missing_information(state):
     state["missing_information"] = missing
 
     return state
+
+
 # ============================================================
 # CLASSIFY HR REQUEST
 # ============================================================
@@ -269,13 +290,15 @@ def update_missing_information(state):
 def classify_mode(
     question: str
 ) -> str:
+
     """
     Classify the user's request as:
 
         TASKING
         QA
 
-    TASKING = user wants an HR operation.
+    TASKING = user wants the system to perform an HR operation
+              or retrieve information through a task workflow.
 
     QA = user wants information from HR recruitment data.
     """
@@ -360,7 +383,7 @@ Examples:
 
 -> TASKING
 
-"Who are the interviewers for requisition 44?"
+"Who are the interviewers for requisition 44."
 
 -> TASKING
 
@@ -473,6 +496,110 @@ The following are TASKING:
 "Create a LinkedIn job post."
 
 ============================================================
+INTERVIEW QUESTIONS RULE
+============================================================
+
+Questions asking the system to generate, provide, suggest,
+or prepare interview questions are TASKING requests.
+
+Examples:
+
+"Give me some interview questions for requisition 44."
+
+-> TASKING
+
+"Give me some technical interview questions for
+requisition number 44."
+
+-> TASKING
+
+"Generate interview questions for requisition 44."
+
+-> TASKING
+
+"Suggest some interview questions for Site Engineer."
+
+-> TASKING
+
+"What questions should I ask for Site Engineer?"
+
+-> TASKING
+
+"Prepare technical questions for this job."
+
+-> TASKING
+
+"Give me questions to ask during the interview."
+
+-> TASKING
+
+"Can you provide interview questions for this
+requisition?"
+
+-> TASKING
+
+"Generate some technical questions for the Site Engineer
+position."
+
+-> TASKING
+
+============================================================
+IMPORTANT INTERVIEW QUESTIONS RULE
+============================================================
+
+The phrase "interview questions" means the user wants the
+INTERVIEW_QUESTIONS task workflow.
+
+These requests MUST NOT be classified as QA merely because
+they contain the word "interview".
+
+If the user asks to:
+
+- generate interview questions
+- provide interview questions
+- suggest interview questions
+- prepare interview questions
+- get technical interview questions
+- get questions for interviewing a candidate
+- know what questions to ask for a job
+- prepare technical questions for a job
+
+classify the request as:
+
+TASKING
+
+The task workflow will then determine whether the user
+provided:
+
+- a requisition number
+- a job title
+- both
+- neither
+
+Examples:
+
+"Give me technical interview questions for requisition 44."
+
+-> TASKING
+
+"Give me interview questions for Site Engineer."
+
+-> TASKING
+
+"Generate interview questions for requisition 44 for
+a Site Engineer."
+
+-> TASKING
+
+Do NOT classify these as QA.
+
+They must be sent to:
+
+TASKING
+    ↓
+INTERVIEW_QUESTIONS
+
+============================================================
 JOB DESCRIPTION RULE
 ============================================================
 
@@ -546,7 +673,9 @@ Do NOT classify based only on one keyword.
 Determine whether the user wants:
 
 ACTION / TASK
+
 or
+
 INFORMATION / QA
 
 ============================================================
@@ -586,6 +715,23 @@ on September 2?"
 
 -> TASKING
 
+"Give me some interview questions for requisition 44."
+
+-> TASKING
+
+"Give me some technical interview questions for
+requisition number 44."
+
+-> TASKING
+
+"Generate interview questions for Site Engineer."
+
+-> TASKING
+
+"Suggest technical questions for Site Engineer."
+
+-> TASKING
+
 "What are Jithu Daniel's skills?"
 
 -> QA
@@ -607,28 +753,41 @@ FINAL CLASSIFICATION PRINCIPLE
 ============================================================
 
 If the user wants an ACTION or TASK:
+
 TASKING
 
 If the user wants general HR DATA INFORMATION:
+
 QA
 
 If the user asks to list/show/get interviewers assigned
 to a requisition:
+
 TASKING
 
 If the user asks about interviewer availability:
+
 TASKING
 
 If the user asks to schedule an interview:
+
 TASKING
 
 If the user asks to send an email:
+
 TASKING
 
 If the user asks to post a job description to LinkedIn:
+
 TASKING
 
 If the user provides a complete standalone job description:
+
+TASKING
+
+If the user asks to generate, provide, suggest, or prepare
+interview questions:
+
 TASKING
 
 ============================================================
@@ -771,6 +930,7 @@ or
 def route_request(
     question: str
 ):
+
     """
     Route the request to:
 
@@ -812,3 +972,4 @@ def route_request(
             "question": question
         }
     )
+
