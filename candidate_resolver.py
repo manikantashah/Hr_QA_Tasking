@@ -85,20 +85,62 @@ def normalize_name(
     return name
 
 
-# ============================================================
+
 # NAME SIMILARITY
-# ============================================================
 
-def name_similarity(
-    name1: str,
-    name2: str
-) -> float:
 
-    return SequenceMatcher(
-        None,
-        normalize_name(name1),
-        normalize_name(name2)
-    ).ratio()
+def normalize_name(name: str) -> str:
+
+    if not name:
+        return ""
+
+    name = str(name).strip().lower()
+
+    name = re.sub(r"\s+", " ", name)
+
+    return name
+
+
+def name_similarity(name1: str, name2: str) -> float:
+
+    name1 = normalize_name(name1)
+    name2 = normalize_name(name2)
+
+    words1 = name1.split()
+    words2 = name2.split()
+
+    n1 = len(words1)
+    n2 = len(words2)
+
+    if n1 < n2:
+        words1, words2 = words2, words1
+        n1, n2 = n2, n1
+
+    # Sort requested name
+    words2.sort()
+
+    normalized_name2 = " ".join(words2)
+
+    scores = []
+
+    for i in range(n1 - n2 + 1):
+
+        current_words = words1[i:i + n2]
+
+        # Sort current window
+        current_words.sort()
+
+        normalized_name1 = " ".join(current_words)
+
+        score = SequenceMatcher(
+            None,
+            normalized_name1,
+            normalized_name2
+        ).ratio()
+
+        scores.append(score)
+
+    return max(scores) if scores else 0.0
 
 
 # ============================================================
