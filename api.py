@@ -56,32 +56,22 @@ class QuestionRequest(BaseModel):
 
 def _ensure_dict(value):
     """
-    Convert a value into a dictionary safely.
+    Safely convert a value into a dictionary.
 
-    Supported:
-
-        dict
-        JSON string containing an object
-
-    Example:
-
-        '{"status": "FOUND"}'
-
-    becomes:
-
-        {
-            "status": "FOUND"
-        }
-
-    If the value cannot be converted to a dictionary,
-    an empty dictionary is returned.
+    Handles:
+        - dict
+        - JSON string containing one object
+        - JSON string containing extra/trailing content
     """
 
     # --------------------------------------------------------
     # Already a dictionary
     # --------------------------------------------------------
 
-    if isinstance(value, dict):
+    if isinstance(
+        value,
+        dict
+    ):
 
         return value
 
@@ -89,7 +79,10 @@ def _ensure_dict(value):
     # JSON string
     # --------------------------------------------------------
 
-    if isinstance(value, str):
+    if isinstance(
+        value,
+        str
+    ):
 
         text = value.strip()
 
@@ -97,17 +90,52 @@ def _ensure_dict(value):
 
             return {}
 
+        # ----------------------------------------------------
+        # First try normal JSON parsing
+        # ----------------------------------------------------
+
         try:
 
-            parsed = json.loads(text)
+            parsed = json.loads(
+                text
+            )
 
-            if isinstance(parsed, dict):
+            if isinstance(
+                parsed,
+                dict
+            ):
 
                 return parsed
 
         except json.JSONDecodeError:
 
-            return {}
+            pass
+
+        # ----------------------------------------------------
+        # Handle extra data after first JSON object
+        # ----------------------------------------------------
+
+        try:
+
+            decoder = json.JSONDecoder()
+
+            parsed, _ = decoder.raw_decode(
+                text
+            )
+
+            if isinstance(
+                parsed,
+                dict
+            ):
+
+                return parsed
+
+        except (
+            json.JSONDecodeError,
+            TypeError
+        ):
+
+            pass
 
     return {}
 
@@ -133,15 +161,11 @@ def _save_tasking_state(
     conversation_id,
     state
 ):
-    """
-    Save the current tasking conversation.
 
-    Important:
-    We keep only the state required to continue
-    the current task.
-    """
-
-    if not isinstance(state, dict):
+    if not isinstance(
+        state,
+        dict
+    ):
 
         return
 
@@ -160,9 +184,6 @@ def _save_qa_state(
     conversation_id,
     response
 ):
-    """
-    Save an HR Q&A clarification state.
-    """
 
     response = _ensure_dict(
         response
@@ -205,15 +226,6 @@ def _save_qa_state(
 def _clear_conversation(
     conversation_id
 ):
-    """
-    Completely remove the current conversation state.
-
-    This is important after a task is successfully
-    completed or cancelled.
-
-    It prevents the next user request from accidentally
-    continuing the previous interviewer/candidate confirmation.
-    """
 
     CONVERSATIONS.pop(
         conversation_id,
@@ -228,26 +240,6 @@ def _clear_conversation(
 def _reset_confirmation_state(
     state
 ):
-    """
-    Remove temporary confirmation information.
-
-    This is called after the user confirms a suggestion.
-
-    Example:
-
-        User:
-            Charles Wood
-
-        System:
-            Charles Wood Devadoss Wood Fread
-            Would you like to use this interviewer?
-
-        User:
-            yes
-
-    After confirmation, these temporary fields should
-    not remain active.
-    """
 
     state["awaiting_confirmation"] = False
 
@@ -263,8 +255,6 @@ def _reset_confirmation_state(
 
     state["suggested_interviewer"] = None
 
-    # Some implementations may use this name
-
     state["suggested_interviewers"] = None
 
     return state
@@ -279,9 +269,6 @@ def _resume_qa(
     question,
     conversation_id
 ):
-    """
-    Continue an existing HR Q&A conversation.
-    """
 
     previous_state = (
         previous_state
@@ -350,11 +337,6 @@ def _resume_qa(
                 suggested_candidate
             )
         )
-
-        # ----------------------------------------------------
-        # IMPORTANT:
-        # Clear old state BEFORE processing new request.
-        # ----------------------------------------------------
 
         _clear_conversation(
             conversation_id
@@ -466,10 +448,6 @@ def _resume_qa(
                 question
             )
         )
-
-        # ----------------------------------------------------
-        # Clear old QA state.
-        # ----------------------------------------------------
 
         _clear_conversation(
             conversation_id
@@ -603,6 +581,26 @@ def execute(
                 conversation_result
             )
 
+            print(
+                "\n========================================"
+            )
+
+            print(
+                "CONVERSATION RESULT"
+            )
+
+            print(
+                json.dumps(
+                    conversation_result,
+                    indent=4,
+                    default=str
+                )
+            )
+
+            print(
+                "========================================"
+            )
+
             action = (
                 conversation_result.get(
                     "action"
@@ -619,7 +617,8 @@ def execute(
                 "requisition_number",
                 "date",
                 "start_datetime",
-                "end_datetime"
+                "end_datetime",
+                "title_name"
 
             ]:
 
@@ -629,11 +628,70 @@ def execute(
                     )
                 )
 
-                if value:
+                if value is not None:
+
+                    if value != "":
+
+                        previous_state[
+                            field
+                        ] = value
+
+            # =================================================
+            # IMPORTANT TITLE UPDATE
+            # =================================================
+            #
+            # If the user supplied a NEW TITLE:
+            #
+            #     Site Engineer (Trainee)
+            #
+            # and there is NO selected requisition number,
+            # then requisition_number must be cleared.
+            #
+            # But if the user selected an option:
+            #
+            #     1
+            #
+            # conversation.py returns:
+            #
+            #     title_name = ["Site Engineer"]
+            #     requisition_number = "21"
+            #
+            # In that case DO NOT clear 21.
+            #
+            # =================================================
+
+            new_title = (
+                conversation_result.get(
+                    "title_name"
+                )
+            )
+
+            new_requisition_number = (
+                conversation_result.get(
+                    "requisition_number"
+                )
+            )
+
+            if new_title:
+
+                previous_state[
+                    "title_name"
+                ] = new_title
+
+                # -------------------------------------------------
+                # Only clear requisition number when the title was
+                # supplied WITHOUT a selected requisition.
+                # -------------------------------------------------
+
+                if (
+                    new_requisition_number is None
+                    or
+                    new_requisition_number == ""
+                ):
 
                     previous_state[
-                        field
-                    ] = value
+                        "requisition_number"
+                    ] = None
 
             # =================================================
             # UPDATE INTERVIEWER NAMES
@@ -692,9 +750,6 @@ def execute(
                     "waiting_for_user"
                 ] = True
 
-                # If this is a normal clarification,
-                # keep confirmation state if required.
-
                 if (
                     "awaiting_confirmation"
                     not in previous_state
@@ -742,12 +797,7 @@ def execute(
             }:
 
                 # -------------------------------------------------
-                # IMPORTANT:
-                #
-                # The user has answered the previous confirmation.
-                #
-                # Clear temporary confirmation values before
-                # running orchestration again.
+                # Clear temporary confirmation flags.
                 # -------------------------------------------------
 
                 _reset_confirmation_state(
@@ -755,7 +805,61 @@ def execute(
                 )
 
                 # -------------------------------------------------
-                # Run orchestration with the updated state.
+                # DEBUG STATE
+                # -------------------------------------------------
+
+                print(
+                    "\n========================================"
+                )
+
+                print(
+                    "STATE BEFORE ORCHESTRATION"
+                )
+
+                print(
+                    json.dumps(
+                        {
+                            "title_name":
+                                previous_state.get(
+                                    "title_name"
+                                ),
+
+                            "requisition_number":
+                                previous_state.get(
+                                    "requisition_number"
+                                ),
+
+                            "candidate_name":
+                                previous_state.get(
+                                    "candidate_name"
+                                ),
+
+                            "interviewer_names":
+                                previous_state.get(
+                                    "interviewer_names"
+                                ),
+
+                            "start_datetime":
+                                previous_state.get(
+                                    "start_datetime"
+                                ),
+
+                            "end_datetime":
+                                previous_state.get(
+                                    "end_datetime"
+                                )
+                        },
+                        indent=4,
+                        default=str
+                    )
+                )
+
+                print(
+                    "========================================"
+                )
+
+                # -------------------------------------------------
+                # Run orchestration again.
                 # -------------------------------------------------
 
                 orchestration_result = (
@@ -773,8 +877,8 @@ def execute(
                 )
 
                 # -------------------------------------------------
-                # If orchestration requires another user response,
-                # preserve the state.
+                # If another response is required,
+                # preserve state.
                 # -------------------------------------------------
 
                 if (
@@ -799,14 +903,6 @@ def execute(
                     )
 
                 else:
-
-                    # ------------------------------------------------
-                    # TASK COMPLETED.
-                    #
-                    # VERY IMPORTANT:
-                    # Remove the old task state.
-                    # The next request will be completely new.
-                    # ------------------------------------------------
 
                     _clear_conversation(
                         conversation_id
@@ -847,14 +943,15 @@ def execute(
                     "state":
                         previous_state,
 
-                    # =================================================
-                    # CHANGED:
-                    # final_response -> result_summary
-                    # =================================================
-
                     "message":
-                        previous_state.get(
-                            "result_summary"
+                        (
+                            previous_state.get(
+                                "result_summary"
+                            )
+                            or
+                            previous_state.get(
+                                "final_response"
+                            )
                         )
                 }
 
@@ -890,33 +987,10 @@ def execute(
         # ====================================================
         # 3. NEW REQUEST
         # ====================================================
-        #
-        # If we reach here, there is no active conversation
-        # waiting for confirmation.
-        #
-        # Therefore this request is treated as a NEW request.
-        #
-        # This is important for:
-        #
-        # Request 1:
-        #   Charles Wood
-        #
-        # yes
-        #
-        # Request 2:
-        #   Charles Wood Devadoss
-        #
-        # Request 2 must NOT inherit Request 1.
-        #
-        # ====================================================
 
         mode, routed = route_request(
             question
         )
-
-        # ----------------------------------------------------
-        # Make sure router output is a dictionary.
-        # ----------------------------------------------------
 
         routed = _ensure_dict(
             routed
@@ -927,10 +1001,6 @@ def execute(
         # ====================================================
 
         if mode == "TASKING":
-
-            # ------------------------------------------------
-            # Completely fresh task state.
-            # ------------------------------------------------
 
             state = {
 
@@ -960,17 +1030,9 @@ def execute(
 
             }
 
-            # ------------------------------------------------
-            # Add router information.
-            # ------------------------------------------------
-
             state.update(
                 routed
             )
-
-            # ------------------------------------------------
-            # Run orchestration.
-            # ------------------------------------------------
 
             orchestration_result = (
                 orchestrate(
@@ -1061,14 +1123,15 @@ def execute(
                 "state":
                     state,
 
-                # =================================================
-                # CHANGED:
-                # final_response -> result_summary
-                # =================================================
-
                 "message":
-                    state.get(
-                        "result_summary"
+                    (
+                        state.get(
+                            "result_summary"
+                        )
+                        or
+                        state.get(
+                            "final_response"
+                        )
                     )
             }
 
