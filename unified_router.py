@@ -972,4 +972,3 @@ def route_request(
             "question": question
         }
     )
-
