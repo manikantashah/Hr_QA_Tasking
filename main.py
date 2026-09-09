@@ -97,7 +97,12 @@ result_summarizer_llm = ChatOCIGenAI(
     model_kwargs={"max_tokens": 4000}
 )
 
+# ============================================================
+# ROUTE DECISION
+# ============================================================
+
 class RouteDecision(BaseModel):
+
     route: Literal[
         "HYBRID_ROUTE",
         "UNKNOWN_ROUTE"
@@ -114,11 +119,17 @@ class RouteDecision(BaseModel):
         )
     )
 
+
+# ============================================================
+# QUERY STATE
+# ============================================================
+
 class QueryState(TypedDict):
 
     question: str
 
     master_df: pd.DataFrame
+
     work_experience_df: pd.DataFrame
 
     route_reason: str
@@ -138,9 +149,11 @@ class QueryState(TypedDict):
     feedback: str
 
     iteration: int
+
     max_iteration: int
 
     sql_result: str
+
     result_summary: str
 
     query_history: Annotated[
@@ -153,80 +166,286 @@ class QueryState(TypedDict):
         operator.add
     ]
 
+
 # ============================================================
-# EXTRACT CANDIDATE NAME FROM USER QUESTION
+# EXTRACT CANDIDATE NAME
 # ============================================================
 
 def extract_candidate_name(
     question: str
 ):
-    """Extract a specific candidate name when the question contains one."""
+    """
+    Extract a specific candidate name from the question.
+
+    Returns:
+        candidate name
+        or None
+    """
 
     prompt = f"""
+
 You are an HR Recruitment Question Analyzer.
 
 Determine whether the user's question refers to one specific
 candidate.
 
 USER QUESTION:
+
 {question}
 
 Rules:
+
 1. Extract the candidate name if a specific candidate is mentioned.
+
 2. Preserve the candidate name exactly as the user typed it.
+
 3. Do not correct spelling.
+
 4. Do not invent a candidate name.
+
 5. If no specific candidate is mentioned, return null.
 
 Examples:
 
 Question:
 "can u give me the skills of the Mamdou Salem?"
+
 Return:
 {{"candidate_name": "Mamdou Salem"}}
 
 Question:
 "what is the email of Jithu Daniel?"
+
 Return:
 {{"candidate_name": "Jithu Daniel"}}
 
 Question:
 "show me all candidates in requisition 44"
+
 Return:
 {{"candidate_name": null}}
 
 Return ONLY valid JSON.
 """
 
-    response = llm_intent.invoke(prompt)
-    content = response.content.strip()
-
-    if content.startswith("```"):
-        content = content.replace("```json", "")
-        content = content.replace("```", "")
-        content = content.strip()
-
     try:
-        result = json.loads(content)
-    except json.JSONDecodeError:
+
+        response = llm_intent.invoke(
+            prompt
+        )
+
+        content = response.content.strip()
+
+        if content.startswith(
+            "```"
+        ):
+
+            content = content.replace(
+                "```json",
+                ""
+            )
+
+            content = content.replace(
+                "```",
+                ""
+            )
+
+            content = content.strip()
+
+        result = json.loads(
+            content
+        )
+
+        return result.get(
+            "candidate_name"
+        )
+
+    except Exception:
+
         return None
 
-    return result.get("candidate_name")
+
+# ============================================================
+# EXTRACT TITLE NAME
+# ============================================================
+
+def extract_title_name(
+    question: str
+):
+    """
+    Extract a job/requisition title from the user's question.
+
+    This function does NOT resolve or correct the title.
+
+    Example:
+
+        "What is the state of the Site Engineer?"
+
+        ->
+        "Site Engineer"
+
+    Example:
+
+        "Tell me about Python SDE-1."
+
+        ->
+        "Python SDE-1"
+
+    Example:
+
+        "What is the state of requisition 44?"
+
+        ->
+        None
+    """
+
+    prompt = f"""
+
+You are an HR Recruitment Question Analyzer.
+
+Determine whether the user's question refers to a specific
+job title / position / requisition title.
+
+USER QUESTION:
+
+{question}
+
+Rules:
+
+1. Extract the job title if a specific job title is mentioned.
+
+2. Preserve the title exactly as the user typed it.
+
+3. Do not correct spelling.
+
+4. Do not invent a title.
+
+5. If no specific job title is mentioned, return null.
+
+6. Do not extract requisition numbers as titles.
+
+7. Do not return a candidate name as a title.
+
+8. The title may contain:
+   - spaces
+   - hyphens
+   - numbers
+   - parentheses
+   - abbreviations
+
+Examples:
+
+Question:
+"What is the state of the Site Engineer?"
+
+Return:
+{{"title_name": "Site Engineer"}}
+
+Question:
+"What is the state of Site Enginner?"
+
+Return:
+{{"title_name": "Site Enginner"}}
+
+Question:
+"Tell me about Python SDE-1."
+
+Return:
+{{"title_name": "Python SDE-1"}}
+
+Question:
+"What is the status of requisition 44?"
+
+Return:
+{{"title_name": null}}
+
+Question:
+"Show all candidates in requisition 44."
+
+Return:
+{{"title_name": null}}
+
+Question:
+"What is the AI score of Jithu Daniel?"
+
+Return:
+{{"title_name": null}}
+
+Question:
+"Who is the highest scoring candidate?"
+
+Return:
+{{"title_name": null}}
+
+Return ONLY valid JSON.
+
+Do not return markdown.
+
+Do not return code fences.
+
+Do not return any text outside the JSON object.
+"""
+
+    try:
+
+        response = llm_intent.invoke(
+            prompt
+        )
+
+        content = response.content.strip()
+
+        if content.startswith(
+            "```"
+        ):
+
+            content = content.replace(
+                "```json",
+                ""
+            )
+
+            content = content.replace(
+                "```",
+                ""
+            )
+
+            content = content.strip()
+
+        result = json.loads(
+            content
+        )
+
+        title = result.get(
+            "title_name"
+        )
+
+        if title is None:
+
+            return None
+
+        title = str(
+            title
+        ).strip()
+
+        return (
+            title
+            if title
+            else None
+        )
+
+    except Exception:
+
+        return None
 
 
 # ============================================================
-# 6. Get HR Data
-# ============================================================
-
-# ============================================================
-# 7. Get HR Data
+# GET HR DATA
 # ============================================================
 
 def get_hr_data():
 
-    # Get Master API DataFrame
-    # Get Work Experience API DataFrame
-    master_df, work_experience_df = create_hr_tables()
+    master_df, work_experience_df = (
+        create_hr_tables()
+    )
 
     return (
         master_df,
@@ -235,7 +454,7 @@ def get_hr_data():
 
 
 # ============================================================
-# 11. HR RECRUITMENT DATABASE SCHEMA
+# HR RECRUITMENT DATABASE SCHEMA
 # ============================================================
 
 HR_DATABASE_SCHEMA = """
@@ -287,7 +506,6 @@ requisition_header_id
 requisition_number
 - Business requisition number.
 - Data type: TEXT.
-- Example: "44".
 
 requisition_id
 - System requisition identifier.
@@ -296,7 +514,6 @@ requisition_id
 requisition_title
 - Job requisition title.
 - Data type: TEXT.
-- Example: "Site Engineer (Trainee)".
 
 requisition_state_name
 - Current state of the requisition.
@@ -336,7 +553,6 @@ candidate_line_id
 candidate_job_application_id
 - Candidate application identifier.
 - Data type: TEXT.
-- One application represents one candidate application.
 
 candidate_person_id
 - Candidate/person identifier.
@@ -377,7 +593,6 @@ candidate_email
 screening_header_id
 - Screening header identifier.
 - Data type: TEXT.
-- MOST IMPORTANT relationship key between the two tables.
 
 screening_candidate_line_id
 - Screening candidate line identifier.
@@ -388,38 +603,24 @@ screening_requisition_header_id
 - Data type: TEXT.
 
 screening_current_role
-- Candidate's current or recent role.
+- Candidate current or recent role.
 - Data type: TEXT.
 
 screening_education
-- Candidate's education.
+- Candidate education.
 - Data type: TEXT.
 
 screening_certifications
-- Candidate's certifications.
+- Candidate certifications.
 - Data type: TEXT.
-
-screening_skills
-
-- Candidate's skills extracted during screening.
-- Data type: TEXT.
-- Contains the candidate's technical skills, soft skills,
-  languages, tools, and other relevant skills.
-- Example:
-  "AutoCAD, ConstructionSiteExecutionDiploma,
-  TechnicalOfficeDiploma, Microsoftoffice, MicrosoftExcel,
-  ProblemSolving, LeadershipSkills, WorkunderPressure,
-  QuickLearning, GoodPresentationSkills, GoodTimeManagement,
-  TeamWorkingSkills, Arabic, English".
 
 screening_ai_summary
-- AI-generated candidate screening summary.
+- AI-generated screening summary.
 - Data type: TEXT.
 
 screening_ai_score
-- AI-generated candidate screening score.
-- Data type: NUMBER/TEXT depending on API response.
-- Higher score generally represents a stronger candidate match.
+- AI-generated screening score.
+- Data type: NUMBER/TEXT.
 
 screening_person_id
 - Screening person identifier.
@@ -433,9 +634,12 @@ screening_recruiter
 - Recruiter name.
 - Data type: TEXT.
 
-
 screening_work_email
-- Recruiter's/work email associated with screening.
+- Recruiter/work email.
+- Data type: TEXT.
+
+screening_skills
+- Candidate skills.
 - Data type: TEXT.
 
 
@@ -444,482 +648,37 @@ TABLE 2: work_experience_df
 ============================================================
 
 PURPOSE:
-Contains individual work-experience records for candidates.
+Contains individual work-experience records.
 
 GRANULARITY:
 ONE ROW represents ONE work-experience record.
 
 A single candidate can therefore have MULTIPLE rows.
 
-Example:
-
-Candidate 114:
-
-Row 1:
-Company = Sekmo Company
-Job Title = Civil Site Engineer
-Duration = Jan 2026 – Present
-
-Row 2:
-Company = The Arab Contractors
-Job Title = Civil Engineering Intern
-Duration = Jul 2024 – Aug 2024
-
-
-------------------------------------------------------------
-WORK EXPERIENCE COLUMNS
-------------------------------------------------------------
+COLUMNS:
 
 line_id
-- Unique work-experience record identifier.
-
 screening_header_id
-- Screening header identifier.
-- MOST IMPORTANT relationship key.
-
 requisition_header_id
-- Requisition header identifier.
-
 candidate_line_id
-- Candidate line identifier.
-
 job_application_id
-- Candidate application identifier.
-
 candidate_person_id
-- Candidate person identifier.
-- This field may be NULL in the work-experience API.
-
-company_name
-- Company where the candidate worked.
-
-job_title
-- Job title/role associated with the work experience.
-
-duration
-- Duration of the work experience.
-- Example:
-  "Jan 2026 – Present"
-
-
-============================================================
-RELATIONSHIP BETWEEN THE TWO TABLES
-============================================================
-
-The two tables are related through THREE common fields:
-
-1. screening_header_id
-2. requisition_header_id
-3. candidate_line_id
-
-IMPORTANT:
-screening_header_id is the MOST IMPORTANT matching key.
-
-When information from both tables is required, use ALL THREE
-keys to establish the relationship.
-
-JOIN CONDITION:
-
-m.screening_header_id = w.screening_header_id
-
-AND
-
-m.requisition_header_id = w.requisition_header_id
-
-AND
-
-m.candidate_line_id = w.candidate_line_id
-
-where:
-
-m = master_df
-w = work_experience_df
-
-
-DO NOT join the tables using candidate_name when the three
-relationship keys are available.
-
-DO NOT join only using candidate_line_id.
-
-DO NOT join only using requisition_header_id.
-
-DO NOT join only using screening_header_id when all three
-keys are available.
-
-
-============================================================
-WHAT CAN BE ANSWERED FROM master_df
-============================================================
-
-Use master_df for questions about:
-
-- Requisition number
-- Requisition title
-- Requisition status
-- Requisition phase
-- Requisition applications
-- Job description
-- Candidate name
-- Candidate application
-- Candidate application status
-- Candidate education
-- Candidate certifications
-- Candidate current role
-- Candidate recruiter
-- Candidate email
-- Candidate screening
-- AI screening score
-- AI screening summary
-
-
-============================================================
-WHAT CAN BE ANSWERED FROM
-work_experience_df
-============================================================
-
-Use work_experience_df for questions about:
-
-- Previous companies
-- Previous employers
-- Work history
-- Previous job titles
-- Work experience
-- Experience duration
-- Employment history
-
-
-============================================================
-WHEN TO USE BOTH TABLES
-============================================================
-
-Use BOTH tables when the user's question requires information
-from candidate screening/master data AND work experience.
-
-Examples:
-
-1. "What is Mamdouh Salem's AI score and where did he work?"
-
-2. "Who is the highest scoring candidate for Site Engineer
-   and which companies did they work for?"
-
-3. "Show candidates with an AI score above 70 and their
-   previous companies."
-
-4. "Which candidate for requisition 44 has the highest score
-   and what is their work experience?"
-
-
-For these questions:
-
-1. Find the required candidate/master information from
-   master_df.
-
-2. Join work_experience_df using:
-
-   screening_header_id
-   requisition_header_id
-   candidate_line_id
-
-3. Return ALL matching work-experience records when the
-   question asks for complete experience.
-
-
-============================================================
-WORK EXPERIENCE RULES
-============================================================
-
-IMPORTANT:
-
-Work experience is NOT a column in master_df.
-
-DO NOT generate:
-
-SELECT WorkExperience
-FROM master_df
-
-DO NOT assume that these are columns in master_df:
-
-CompanyName
-JobTitle
-Duration
-
-They belong to work_experience_df as:
-
 company_name
 job_title
 duration
 
 
-A candidate may have multiple work-experience records.
-
-For example:
-
-Mamdouh Salem:
-
-Record 1:
-SekmoCompany
-CivilSiteEngineer
-Jan2026–Present
-
-Record 2:
-The Arab Contractors
-Civil engineering intern
-Jul2024–Aug2024
-
-If the user asks for complete work experience, BOTH records
-must be returned.
-
-
 ============================================================
-SUPPORTED QUESTION TYPES
+RELATIONSHIP
 ============================================================
 
-The system can answer:
+The two tables are related through:
 
-1. Requisition information
-2. Candidate information
-3. Candidate application status
-4. Number of candidates/applications
-5. Candidate education
-6. Candidate certifications
-7. Candidate work experience
-8. Candidate skills when available in the master data
-9. Candidate AI screening scores
-10. Candidate ranking by AI score
-11. Candidate comparison
-12. Candidates belonging to a requisition
-13. Candidates belonging to a job title
-14. Candidate screening status
-15. Recruiter-related information
-16. Requisition-candidate relationships
-17. Previous companies
-18. Previous job titles
-19. Experience duration
-20. Combined screening and work-experience questions
-
-
-============================================================
-EXAMPLE 1
-============================================================
-
-QUESTION:
-
-"Show all candidates for requisition 44."
-
-TABLE:
-
-master_df
-
-USE:
-
-candidate_name
-candidate_job_application_id
-candidate_public_state_name
-requisition_number
-
-LOGIC:
-
-Filter using requisition_number = "44".
-
-
-============================================================
-EXAMPLE 2
-============================================================
-
-QUESTION:
-
-"Who has the highest AI score for requisition 44?"
-
-TABLE:
-
-master_df
-
-USE:
-
-requisition_number
-candidate_name
-screening_ai_score
-
-LOGIC:
-
-Filter requisition_number = "44".
-
-Order:
-
-screening_ai_score DESC
-
-Return the highest-scoring candidate.
-
-
-============================================================
-EXAMPLE 3
-============================================================
-
-QUESTION:
-
-"How many candidates are under consideration?"
-
-TABLE:
-
-master_df
-
-USE:
-
-candidate_public_state_name
-candidate_job_application_id
-
-LOGIC:
-
-Filter:
-
-candidate_public_state_name = "Under Consideration"
-
-Then:
-
-COUNT(DISTINCT candidate_job_application_id)
-
-
-============================================================
-EXAMPLE 4
-============================================================
-
-QUESTION:
-
-"What is the education of Mamdouh Salem?"
-
-TABLE:
-
-master_df
-
-USE:
-
-candidate_name
-screening_education
-
-LOGIC:
-
-Find the candidate using candidate_name.
-
-Return screening_education.
-
-
-============================================================
-EXAMPLE 5
-============================================================
-
-QUESTION:
-
-"Who has the highest AI score?"
-
-TABLE:
-
-master_df
-
-USE:
-
-candidate_name
-screening_ai_score
-
-LOGIC:
-
-ORDER BY screening_ai_score DESC
-
-LIMIT 1.
-
-
-============================================================
-EXAMPLE 6
-============================================================
-
-QUESTION:
-
-"Where did Mamdouh Salem work?"
-
-TABLE:
-
-work_experience_df
-
-USE:
-
-company_name
-
-The query should return ALL matching company records.
-
-
-============================================================
-EXAMPLE 7
-============================================================
-
-QUESTION:
-
-"What jobs did Mamdouh Salem have?"
-
-TABLE:
-
-work_experience_df
-
-USE:
-
-company_name
-job_title
-duration
-
-Return ALL matching work-experience records.
-
-
-============================================================
-EXAMPLE 8
-============================================================
-
-QUESTION:
-
-"Show Mamdouh Salem's complete work experience."
-
-TABLE:
-
-work_experience_df
-
-USE:
-
-company_name
-job_title
-duration
-
-Do NOT use LIMIT 1.
-
-Return every matching work-experience record.
-
-
-============================================================
-EXAMPLE 9
-============================================================
-
-QUESTION:
-
-"What is Mamdouh Salem's AI score and where did he work?"
-
-TABLES:
-
-master_df
-work_experience_df
-
-USE:
-
-Master:
-
-candidate_name
-screening_ai_score
 screening_header_id
 requisition_header_id
 candidate_line_id
 
-Work experience:
-
-company_name
-job_title
-duration
-
-JOIN:
+Preferred JOIN:
 
 m.screening_header_id = w.screening_header_id
 
@@ -933,263 +692,280 @@ m.candidate_line_id = w.candidate_line_id
 
 
 ============================================================
-EXAMPLE 10
+MASTER DATA QUESTIONS
 ============================================================
 
-QUESTION:
+Use master_df for:
 
-"Which company did the highest scoring candidate for
-requisition 44 work for?"
+- requisition information
+- requisition number
+- requisition title
+- requisition state
+- requisition phase
+- requisition applications
+- candidate information
+- candidate name
+- candidate application
+- candidate application status
+- education
+- certifications
+- current role
+- candidate recruiter
+- candidate email
+- AI score
+- AI summary
+- skills
+- screening information
+- job description
 
-TABLES:
 
-master_df
-work_experience_df
+============================================================
+WORK EXPERIENCE QUESTIONS
+============================================================
 
-LOGIC:
+Use work_experience_df for:
 
-1. Filter master_df using requisition_number = "44".
+- previous companies
+- previous employers
+- work history
+- previous jobs
+- previous job titles
+- experience duration
+- employment history
 
-2. Find the candidate with the highest screening_ai_score.
 
-3. Join that candidate to work_experience_df using:
+============================================================
+WHEN BOTH TABLES ARE REQUIRED
+============================================================
 
-   screening_header_id
-   requisition_header_id
-   candidate_line_id
+Use BOTH tables when the question requires:
 
-4. Return company_name, job_title, and duration.
+master_df information
+
+AND
+
+work_experience_df information.
+
+JOIN using:
+
+m.screening_header_id = w.screening_header_id
+
+AND
+
+m.requisition_header_id = w.requisition_header_id
+
+AND
+
+m.candidate_line_id = w.candidate_line_id
+
+
+============================================================
+SKILLS
+============================================================
+
+Skills questions MUST use:
+
+master_df.screening_skills
+
+Do not use certifications for skills questions.
 
 
 ============================================================
 COUNTING RULES
 ============================================================
 
-For unique candidate applications:
+For unique candidate applications use:
 
 COUNT(DISTINCT candidate_job_application_id)
 
-Do NOT simply use COUNT(*) when the question asks for the
-number of unique candidate applications.
+Do not SUM requisition_applications.
 
-
-The requisition_applications value represents the number of
-applications associated with a requisition.
-
-This value may be repeated on multiple candidate rows.
-
-Therefore:
-
-DO NOT SUM(requisition_applications).
-
-
-For work-experience records:
+For work experience records:
 
 COUNT(*)
 
-means number of work-experience records.
 
-It does NOT necessarily mean number of candidates.
+============================================================
+SQL SAFETY
+============================================================
+
+Only these tables are allowed:
+
+master_df
+work_experience_df
+
+Only SELECT statements are allowed.
+
+Do not use:
+
+INSERT
+UPDATE
+DELETE
+DROP
+ALTER
+CREATE
+
+Do not use:
+
+SELECT *
+
+Never invent columns.
 
 
 ============================================================
-SQL SAFETY RULES
+TEXT SEARCH
 ============================================================
 
-1. Use ONLY these tables:
+Case-insensitive flexible search:
 
-   master_df
-   work_experience_df
+LOWER(column) LIKE LOWER('%value%')
 
+Exact search:
 
-2. Use ONLY columns explicitly defined in this schema.
-
-
-3. Never invent columns.
-
-
-4. Never invent tables.
-
-
-5. Never invent candidate information.
-
-
-6. Never invent work-experience information.
-
-
-7. Never use SELECT *.
-
-
-8. Always explicitly specify required columns.
-
-
-9. Use SQLite-compatible SQL.
-
-
-10. Only SELECT statements are allowed.
-
-
-11. Never generate:
-
-    INSERT
-    UPDATE
-    DELETE
-    DROP
-    ALTER
-    CREATE
-
-
-12. For flexible text searches use:
-
-    LOWER(column) LIKE LOWER('%value%')
-
-
-13. For exact matching use:
-
-    LOWER(column) = LOWER('value')
-
-
-14. Use LIMIT 50 for normal multi-row queries.
-
-
-15. Do not use LIMIT for scalar aggregate queries.
-
-
-16. Use LIMIT 1 for questions asking for a single highest
-    or lowest candidate.
-
-
-17. For highest AI score:
-
-    ORDER BY screening_ai_score DESC
-
-
-18. For lowest AI score:
-
-    ORDER BY screening_ai_score ASC
-
-
-19. If a question requires work experience, use
-    work_experience_df.
-
-
-20. If a question requires both master and work experience,
-    use a JOIN.
-
-
-21. When using both tables, use the three relationship keys.
+LOWER(column) = LOWER('value')
 
 
 ============================================================
-NO HALLUCINATION RULE
+JOB TITLE QUESTIONS
 ============================================================
 
-The SQL generator MUST NOT create columns such as:
+For a question about a job/requisition title, include:
 
-WorkExperience
-CompanyName
-JobTitle
-Duration
-YearsOfExperience
-Salary
-Location
-PhoneNumber
+requisition_number
+requisition_title
+requisition_state_name
 
-unless those columns actually exist in the specified table.
+when appropriate.
 
-The correct work-experience columns are:
+Example:
 
-work_experience_df.company_name
-work_experience_df.job_title
-work_experience_df.duration
-
-
-============================================================
-CANNOT ANSWER RULE
-============================================================
-
-If the question cannot be answered using the available
-tables and columns, return:
-
-CANNOT_ANSWER_FROM_SCHEMA
-
-Do NOT invent a table.
-
-Do NOT invent a column.
-
-Do NOT invent data.
+SELECT
+    m.requisition_number,
+    m.requisition_title,
+    m.requisition_state_name
+FROM master_df m
+WHERE LOWER(m.requisition_title)
+      = LOWER('Site Engineer')
+LIMIT 50;
 
 
 ============================================================
-FINAL SQL OUTPUT RULE
+REQUISITION STATE
+============================================================
+
+Use:
+
+m.requisition_state_name
+
+when the question asks about requisition state/status.
+
+
+============================================================
+REQUISITION PHASE
+============================================================
+
+Use:
+
+m.requisition_phase_name
+
+
+============================================================
+CANDIDATE APPLICATION STATE
+============================================================
+
+Use:
+
+m.candidate_public_state_name
+
+
+============================================================
+AI SCORE
+============================================================
+
+Use:
+
+m.screening_ai_score
+
+
+============================================================
+WORK EXPERIENCE
+============================================================
+
+Use:
+
+w.company_name
+w.job_title
+w.duration
+
+
+============================================================
+FINAL SQL RULE
 ============================================================
 
 Return SQL ONLY.
 
 Do not return:
 
-- Explanation
-- Markdown
-- Code fences
-- Comments
-- Natural-language answer
+- explanations
+- markdown
+- code fences
 - JSON
-
-The result summarizer will convert the SQL result into
-natural-language business language.
+- comments
+- natural-language answers
 
 """
 
+
 # ============================================================
-# 12. CLEAN SQL
+# CLEAN SQL
 # ============================================================
 
-def clean_sql(text: str) -> str:
+def clean_sql(
+    text: str
+):
 
-    
     text = text.strip()
 
-    # Case 1:
-    # LLM returned SQL inside ```sql ... ```
     if "```sql" in text:
-        return text.split("```sql")[1].split("```")[0].strip()
 
-    # Case 2:
-    # LLM returned SQL inside ``` ... ```
+        return (
+            text
+            .split("```sql")[1]
+            .split("```")[0]
+            .strip()
+        )
+
     if "```" in text:
-        return text.split("```")[1].split("```")[0].strip()
 
-    # Case 3:
-    # LLM returned plain SQL without markdown
+        return (
+            text
+            .split("```")[1]
+            .split("```")[0]
+            .strip()
+        )
+
     return text.strip()
+
+
 # ============================================================
-# 13. EXTRACT JSON
+# EXTRACT JSON
 # ============================================================
 
-def extract_json(text: str) -> dict:
+def extract_json(
+    text: str
+) -> dict:
 
-    # Remove unnecessary spaces from the beginning
-    # and end of the response
     text = text.strip()
-
-    # --------------------------------------------------------
-    # CASE 1:
-    # Try to directly convert the complete response
-    # into a Python dictionary
-    # --------------------------------------------------------
 
     try:
-        return json.loads(text)
+
+        return json.loads(
+            text
+        )
 
     except Exception:
-        # If direct JSON parsing fails,
-        # continue to the next method
-        pass
 
-    # --------------------------------------------------------
-    # CASE 2:
-    # Search for a JSON object inside the response
-    # --------------------------------------------------------
+        pass
 
     match = re.search(
         r"\{.*\}",
@@ -1197,42 +973,38 @@ def extract_json(text: str) -> dict:
         re.DOTALL
     )
 
-    # If a JSON object was found
     if match:
 
-        # Get only the JSON part
         json_text = match.group()
 
-        # Convert JSON string into Python dictionary
-        return json.loads(json_text)
-
-    # --------------------------------------------------------
-    # CASE 3:
-    # No valid JSON was found
-    # --------------------------------------------------------
+        return json.loads(
+            json_text
+        )
 
     raise ValueError(
         "Could not parse JSON from evaluator response"
     )
 
+
 # ============================================================
-# 15. INTENT ROUTER
+# INTENT ROUTER
 # ============================================================
 
+def intent_router(
+    state: QueryState
+):
 
-def intent_router(state: QueryState):
-
-    print("ENTER Intent Router")
+    print(
+        "ENTER Intent Router"
+    )
 
     prompt = f"""
+
 You are an intelligent routing agent for an HR Recruitment
 Natural Language to SQL system.
 
 Your task is to determine whether the user's question can
 be answered using the available HR recruitment data.
-
-Understand the BUSINESS MEANING of the user's question.
-Do not depend only on exact column names.
 
 AVAILABLE DATABASE SCHEMA:
 
@@ -1264,6 +1036,8 @@ Examples:
 
 "Which candidates have AutoCAD experience?"
 
+"What is the state of Site Engineer?"
+
 2. UNKNOWN_ROUTE
 
 Choose UNKNOWN_ROUTE only when the question cannot be
@@ -1275,67 +1049,29 @@ Examples:
 
 "What is the company's annual revenue?"
 
-"Send an email to the recruiter."
+"Send an email."
 
 "Schedule an interview."
 
-IMPORTANT HR BUSINESS TERMINOLOGY:
+IMPORTANT BUSINESS TERMINOLOGY:
 
-- job opening -> requisition
-- position -> requisition/job
-- applicant -> candidate
-- candidate -> CandidateName
-- application -> candidate application
-- screening score -> AIScore
-- AI score -> AIScore
-- application status -> PublicStateName
-- job title -> Title
-- current job -> CurrentRole
-- education -> Education
-- experience -> WorkExperience
-- skills -> SkillsAndCertifications
-- certifications -> Certifications
-- AI summary -> AISummary
-- requisition status -> StateName
-- requisition phase -> PhaseName
-
-IMPORTANT JOIN KEY INFORMATION:
-
-The HR system contains TWO related data sources:
-
-1. HR Master data
-2. Work Experience data
-
-The most important relationship key is:
-
-screening_header_id
-
-The complete relationship hierarchy is:
-
-screening_header_id
-    -> requisition_header_id
-        -> candidate_line_id
-
-When matching candidate screening information with work
-experience information, screening_header_id must be treated
-as the PRIMARY and MOST IMPORTANT matching key.
-
-Do not assume candidate_line_id alone is sufficient.
-
-Do not assume requisition_header_id alone is sufficient.
-
-The relationship should be interpreted in this priority:
-
-1. screening_header_id
-2. requisition_header_id
-3. candidate_line_id
-
-The available HR data may contain candidate information,
-screening information, requisition information, and
-candidate work experience.
-
-If the user's question can be answered using these HR
-recruitment sources, select HYBRID_ROUTE.
+job opening -> requisition
+position -> requisition/job
+applicant -> candidate
+candidate -> candidate_name
+application -> candidate application
+screening score -> screening_ai_score
+AI score -> screening_ai_score
+application status -> candidate_public_state_name
+job title -> requisition_title
+current job -> screening_current_role
+education -> screening_education
+experience -> work experience
+skills -> screening_skills
+certifications -> screening_certifications
+AI summary -> screening_ai_summary
+requisition status -> requisition_state_name
+requisition phase -> requisition_phase_name
 
 USER QUESTION:
 
@@ -1357,19 +1093,26 @@ OR
     "reason": "The question cannot be answered using the available HR recruitment data."
 }}
 
-Do not return Markdown.
-Do not return ```json.
-Do not return any text outside the JSON object.
+Do not return markdown.
 """
 
     try:
 
-        response = llm_intent.invoke(prompt)
+        response = llm_intent.invoke(
+            prompt
+        )
 
-        print("RAW INTENT RESPONSE:")
-        print(response.content)
+        print(
+            "RAW INTENT RESPONSE:"
+        )
 
-        data = extract_json(response.content)
+        print(
+            response.content
+        )
+
+        data = extract_json(
+            response.content
+        )
 
         route = data.get(
             "route",
@@ -1385,16 +1128,29 @@ Do not return any text outside the JSON object.
             "HYBRID_ROUTE",
             "UNKNOWN_ROUTE"
         ]:
+
             route = "UNKNOWN_ROUTE"
 
-        print("Route:", route)
-        print("Reason:", reason)
+        print(
+            "Route:",
+            route
+        )
 
-        print("EXIT Intent Router")
+        print(
+            "Reason:",
+            reason
+        )
+
+        print(
+            "EXIT Intent Router"
+        )
 
         return {
-            "route": route,
-            "route_reason": reason
+            "route":
+                route,
+
+            "route_reason":
+                reason
         }
 
     except Exception as e:
@@ -1403,29 +1159,35 @@ Do not return any text outside the JSON object.
 
         traceback.print_exc()
 
-        print(
-            "Intent Router failed:",
-            str(e)
-        )
-
         return {
-            "route": "UNKNOWN_ROUTE",
-            "route_reason": f"Intent routing failed: {str(e)}"
+
+            "route":
+                "UNKNOWN_ROUTE",
+
+            "route_reason":
+                f"Intent routing failed: {str(e)}"
         }
 
 
+# ============================================================
+# GENERATE SQL
+# ============================================================
 
-def generate_query_hybrid(state: QueryState):
+def generate_query_hybrid(
+    state: QueryState
+):
 
-    print("ENTER generate_query_hybrid")
+    print(
+        "ENTER generate_query_hybrid"
+    )
 
-    
     template = """
-You are an expert SQLite SQL Generator for a Human Resources
-Recruitment Question Answering system.
 
-Your job is to convert the user's natural-language HR recruitment
-question into ONE valid SQLite SQL query.
+You are an expert SQLite SQL Generator for an HR Recruitment
+Question Answering system.
+
+Your job is to convert the user's natural-language HR question
+into ONE valid SQLite SQL query.
 
 The SQL will be executed against Pandas DataFrames using pandasql.
 
@@ -1445,1053 +1207,160 @@ HR DATABASE SCHEMA
 AVAILABLE TABLES
 ============================================================
 
-ONLY these two tables are available:
+Only these tables are available:
 
-1. master_df
-2. work_experience_df
+master_df
+work_experience_df
 
 Never invent another table.
 
 ============================================================
-MASTER_DF BUSINESS MEANING
+IMPORTANT BUSINESS RULES
 ============================================================
 
-master_df contains the main HR recruitment and candidate screening
-information.
+Determine first whether the question is about:
 
-Important columns include:
-
-- candidate_name
-- candidate_job_application_id
-- requisition_number
-- requisition_title
-- requisition_phase_name
-- candidate_public_state_name
-- screening_ai_score
-- screening_ai_summary
-- screening_current_role
-- screening_skills
-- screening_skills
-- screening_certifications
-- screening_header_id
-- requisition_header_id
-- candidate_line_id
-
-Use ONLY columns that actually exist in the provided schema.
+1. Requisition
+2. Candidate
+3. Work experience
+4. Screening
+5. Both candidate and work experience
 
 ============================================================
-WORK_EXPERIENCE_DF BUSINESS MEANING
+REQUISITION QUESTIONS
 ============================================================
-
-work_experience_df contains candidate previous work experience.
-
-Important columns include:
-
-- screening_header_id
-- requisition_header_id
-- candidate_line_id
-- company_name
-- job_title
-- duration
-
-Use ONLY columns that actually exist in the provided schema.
-
-============================================================
-CRITICAL BUSINESS MEANING RULES
-============================================================
-
-You MUST understand the difference between requisition-level
-information and candidate-level information.
-
-------------------------------------------------------------
-1. OPEN REQUISITIONS
-------------------------------------------------------------
-
-If the user asks:
-
-- open requisitions
-- open requisition
-- open jobs
-- open job requisitions
-- currently open requisitions
-- which requisitions are open
-- give me open requisitions
-- show open requisitions
-
-the question is about the REQUISITION.
-
-Therefore you MUST use:
-
-    master_df.requisition_phase_name
-
-and filter using:
-
-    LOWER(m.requisition_phase_name) = LOWER('Open')
-
-DO NOT use:
-
-    candidate_public_state_name
-
-for an "open requisitions" question.
-
-Example:
-
-User:
-"Can you give open requisitions?"
-
-Correct SQL:
-
-SELECT DISTINCT
-    m.requisition_number,
-    m.requisition_title,
-    m.requisition_phase_name
-FROM master_df m
-WHERE LOWER(m.requisition_phase_name) = LOWER('Open')
-LIMIT 50;
-
-------------------------------------------------------------
-2. NUMBER OF OPEN REQUISITIONS
-------------------------------------------------------------
-
-If the user asks:
-
-"How many open requisitions?"
-
-use:
-
-SELECT
-    COUNT(DISTINCT m.requisition_number) AS requisition_count
-FROM master_df m
-WHERE LOWER(m.requisition_phase_name) = LOWER('Open');
-
-Do NOT use LIMIT for aggregate queries.
-
-------------------------------------------------------------
-3. CANDIDATE SCREENING STATUS
-------------------------------------------------------------
-
-If the user asks about:
-
-- candidates completed screening
-- candidates who completed screening
-- candidates in screening
-- candidate application status
-- candidate state
-- screening status of candidates
-
-then use:
-
-    candidate_public_state_name
-
-Do NOT use:
-
-    requisition_phase_name
-
-because requisition_phase_name describes the requisition,
-not the candidate.
-
-------------------------------------------------------------
-4. CANDIDATE NAME
-------------------------------------------------------------
-
-If the user asks:
-
-- candidate name
-- candidate
-- who is the candidate
-- candidates
-
-use:
-
-    candidate_name
-
-------------------------------------------------------------
-5. AI SCORE
-------------------------------------------------------------
-
-If the user asks:
-
-- AI score
-- AI screening score
-- screening score
-- candidate score
-
-use:
-
-    screening_ai_score
-
-------------------------------------------------------------
-6. REQUISITION NUMBER
-------------------------------------------------------------
-
-If the user asks:
-
-- requisition number
-- requisition no
-- requisition
-- job requisition number
-
-use:
-
-    requisition_number
-
-============================================================
-REQUISITION QUESTIONS VS CANDIDATE QUESTIONS
-============================================================
-
-Always determine whether the question is about a REQUISITION
-or a CANDIDATE before selecting the column.
-
-REQUISITION:
-
-"open requisitions"
-
-    -> requisition_phase_name
-
-CANDIDATE:
-
-"candidates who completed screening"
-
-    -> candidate_public_state_name
-
-These two columns MUST NOT be confused.
-
-============================================================
-CANDIDATE NAME MATCHING
-============================================================
-
-When the user gives a candidate name, use:
-
-    LOWER(m.candidate_name) = LOWER('Full Name')
-
-for an exact full-name match.
-
-If the user gives only part of a candidate's name, for example:
-
-"give me the AI score of Salem"
-
-DO NOT assume which candidate the user means if multiple
-candidates could match.
-
-Instead, search using:
-
-    LOWER(m.candidate_name) LIKE LOWER('%Salem%')
-
-If the query can identify exactly one candidate, return that
-candidate's information.
-
-If multiple candidates match, return the matching candidate names
-so the HR assistant can ask the user to clarify the full name.
-
-For example:
-
-SELECT DISTINCT
-    m.candidate_name
-FROM master_df m
-WHERE LOWER(m.candidate_name) LIKE LOWER('%Salem%')
-LIMIT 50;
-
-IMPORTANT:
-
-Never silently choose "Mamdouh Salem" merely because it is one
-possible match for "Salem".
-
-The assistant should ask the user to provide the full candidate
-name when multiple candidates match.
-
-============================================================
-TEXT SEARCH RULE
-============================================================
-
-For flexible text searches use:
-
-LOWER(column) LIKE LOWER('%value%')
-
-For exact matching use:
-
-LOWER(column) = LOWER('value')
-
-============================================================
-TABLE SELECTION
-============================================================
-
-Use master_df when the question is about:
-
-- requisition information
-- requisition number
-- requisition title
-- requisition phase
-- requisition status
-- open requisitions
-- candidate name
-- candidate application
-- candidate application status
-- candidate screening status
-- candidate education
-- candidate certifications
-- candidate current role
-- candidate recruiter
-- AI screening score
-- AI screening summary
-
-Use work_experience_df when the question is about:
-
-- previous companies
-- previous employers
-- work history
-- previous job titles
-- work experience
-- experience duration
-============================================================
-SKILLS QUESTION RULE - VERY IMPORTANT
-============================================================
-When the user asks about a candidate's:
-
-- skills
-- technical skills
-- professional skills
-- soft skills
-- abilities
-- competencies
-- capabilities
-- candidate skills
-
-ALWAYS use:
-
-master_df.screening_skills
-
-For skills-related questions, ALWAYS retrieve the
-screening_skills column from master_df.
-
-DO NOT use:
-
-master_df.screening_certifications
-
-unless the user explicitly asks for certifications.
-
-DO NOT use:
-
-master_df.screening_current_role
-
-unless the user explicitly asks for the candidate's current role.
-
-DO NOT use:
-
-work_experience_df
-
-for a skills question unless the user explicitly asks about
-work experience.
-
-IMPORTANT:
-
-screening_skills is a valid column in master_df.
-
-Therefore, NEVER return:
-
-CANNOT_ANSWER_FROM_SCHEMA
-
-when the user asks for candidate skills.
-
-Example:
-
-User:
-"Can you give me the skills of Mamdouh Salem?"
-
-Correct SQL:
-
-SELECT
-    m.candidate_name,
-    m.screening_skills
-FROM master_df m
-WHERE LOWER(m.candidate_name) = LOWER('Mamdouh Salem');
-
-Another example:
-
-User:
-"What are Mamdouh Salem's technical skills?"
-
-Correct SQL:
-
-SELECT
-    m.candidate_name,
-    m.screening_skills
-FROM master_df m
-WHERE LOWER(m.candidate_name) = LOWER('Mamdouh Salem');
-
-Another example:
-
-User:
-"Give me the skills of candidates in requisition 44."
-
-Correct SQL:
-
-SELECT
-    m.candidate_name,
-    m.screening_skills
-FROM master_df m
-WHERE LOWER(m.requisition_number) = LOWER('44')
-LIMIT 50;
-
-The generated SQL MUST use:
-
-m.screening_skills
-
-for all skills-related questions.
-
-
-============================================================
-WHEN BOTH TABLES ARE REQUIRED
-============================================================
-
-Use BOTH tables when the question requires information from
-candidate/master data AND work experience.
-
-Example:
-
-"What is Mamdouh Salem's AI score and where did he work?"
-
-============================================================
-JOIN RULE
-============================================================
-
-When joining master_df and work_experience_df, ALWAYS use ALL
-THREE relationship keys:
-
-m.screening_header_id = w.screening_header_id
-
-AND
-
-m.requisition_header_id = w.requisition_header_id
-
-AND
-
-m.candidate_line_id = w.candidate_line_id
-
-where:
-
-m = master_df
-w = work_experience_df
-
-IMPORTANT:
-
-Do NOT join using candidate_name when the relationship keys
-are available.
-
-Do NOT join using only candidate_line_id.
-
-Do NOT join using only requisition_header_id.
-
-============================================================
-SQL RULES
-============================================================
-
-1. Return SQL only.
-
-2. Use SQLite-compatible SQL.
-
-3. Use SELECT statements only.
-
-4. Only use:
-
-   master_df
-   work_experience_df
-
-5. Never use SELECT *.
-
-6. Always explicitly specify the required columns.
-
-7. Never invent columns.
-
-8. Never invent tables.
-
-9. Use only columns defined in the supplied schema.
-
-10. For normal multi-row results use:
-
-    LIMIT 50
-
-11. Do NOT use LIMIT for scalar aggregate queries.
-
-12. For unique candidate/application counts use:
-
-    COUNT(DISTINCT candidate_job_application_id)
-
-13. Do NOT use:
-
-    SUM(requisition_applications)
-
-14. For highest AI score:
-
-    ORDER BY screening_ai_score DESC
-
-15. For lowest AI score:
-
-    ORDER BY screening_ai_score ASC
-
-16. If the user asks for all work experience, return all matching
-    work-experience records.
-
-============================================================
-IMPORTANT DATA VALUE RULE
-============================================================
-
-Do NOT invent database values.
-
-The schema and available data determine the actual values.
-
-For requisition phase questions, use:
-
-    requisition_phase_name
-
-For example, if the actual data contains:
-
-    requisition_phase_name = "Open"
-
-then the SQL must use:
-
-    LOWER(m.requisition_phase_name) = LOWER('Open')
-
-For candidate screening status, use the actual values represented
-by candidate_public_state_name.
-
-Do not automatically change:
-
-"Screening Completed"
-
-into:
-
-"Completed Screening"
-
-or vice versa.
-
-Use the actual value represented in the supplied schema/data.
-
-============================================================
-EXAMPLES
-============================================================
-
-Question:
-
-"Can you give open requisitions?"
-
-Correct SQL:
-
-SELECT DISTINCT
-    m.requisition_number,
-    m.requisition_title,
-    m.requisition_phase_name
-FROM master_df m
-WHERE LOWER(m.requisition_phase_name) = LOWER('Open')
-LIMIT 50;
-
-------------------------------------------------------------
-
-Question:
-
-"How many open requisitions?"
-
-Correct SQL:
-
-SELECT
-    COUNT(DISTINCT m.requisition_number) AS requisition_count
-FROM master_df m
-WHERE LOWER(m.requisition_phase_name) = LOWER('Open');
-
-------------------------------------------------------------
-
-Question:
-
-"Who is the highest scoring candidate for requisition 44?"
-
-Correct SQL:
-
-SELECT
-    m.candidate_name,
-    m.requisition_number,
-    m.screening_ai_score
-FROM master_df m
-WHERE LOWER(m.requisition_number) = LOWER('44')
-ORDER BY m.screening_ai_score DESC
-LIMIT 1;
-
-------------------------------------------------------------
-
-Question:
-
-"Give me the candidates who completed screening in requisition 44."
-
-Correct SQL pattern:
-
-SELECT
-    m.candidate_name
-FROM master_df m
-WHERE LOWER(m.requisition_number) = LOWER('44')
-AND LOWER(m.candidate_public_state_name) =
-    LOWER('<ACTUAL SCREENING COMPLETED VALUE>')
-LIMIT 50;
-
-IMPORTANT:
-
-Use the actual candidate_public_state_name value from the
-available data/schema. Do not invent a different status value.
-
-------------------------------------------------------------
-
-Question:
-
-"How many candidates completed screening in requisition 44?"
-
-Correct SQL pattern:
-
-SELECT
-    COUNT(DISTINCT m.candidate_job_application_id) AS candidate_count
-FROM master_df m
-WHERE LOWER(m.requisition_number) = LOWER('44')
-AND LOWER(m.candidate_public_state_name) =
-    LOWER('<ACTUAL SCREENING COMPLETED VALUE>');
-
-------------------------------------------------------------
-
-Question:
-
-"Where did Mamdouh Salem work?"
-
-Correct SQL:
-
-SELECT
-    m.candidate_name,
-    w.company_name,
-    w.job_title,
-    w.duration
-FROM master_df m
-JOIN work_experience_df w
-ON m.screening_header_id = w.screening_header_id
-AND m.requisition_header_id = w.requisition_header_id
-AND m.candidate_line_id = w.candidate_line_id
-WHERE LOWER(m.candidate_name) = LOWER('Mamdouh Salem')
-LIMIT 50;
-
-------------------------------------------------------------
-
-Question:
-
-"What is Mamdouh Salem's AI score and where did he work?"
-
-Correct SQL:
-
-SELECT
-    m.candidate_name,
-    m.screening_ai_score,
-    w.company_name,
-    w.job_title,
-    w.duration
-FROM master_df m
-JOIN work_experience_df w
-ON m.screening_header_id = w.screening_header_id
-AND m.requisition_header_id = w.requisition_header_id
-AND m.candidate_line_id = w.candidate_line_id
-WHERE LOWER(m.candidate_name) = LOWER('Mamdouh Salem')
-LIMIT 50;
-
-============================================================
-FINAL INSTRUCTIONS
-============================================================
-
-Before generating SQL, perform these steps internally:
-
-1. Understand exactly what the user is asking.
-
-2. Determine whether the question is about:
-   - requisition
-   - candidate
-   - work experience
-   - both
-
-3. Select the correct table.
-
-4. Select the correct column based on business meaning.
-
-5. Verify that every column exists in the supplied schema.
-
-6. Use actual database values when filtering.
-
-7. If the user provides only a partial candidate name,
-   do not assume the full candidate.
-
-8. Generate one valid SQLite SELECT query.
-
-9. Return SQL only.
-
-Do not return explanations.
-
-Do not return markdown.
-
-Do not return natural-language answers.
-
-Do not return JSON.
-
-Return only the SQL query.
-"""
-
-
-    prompt = PromptTemplate(
-        input_variables=[
-            "question",
-            "hr_database_schema"
-        ],
-        template=template
-    )
-
-    final_prompt_string = prompt.format(
-        question=state["question"],
-        hr_database_schema=HR_DATABASE_SCHEMA
-    )
-
-    response = query_generator.invoke(
-        final_prompt_string
-    )
-
-    sql = clean_sql(response.content)
-
-    print("Generated SQL:")
-    print(sql)
-
-    print("EXIT generate_query_hybrid")
-
-    return {
-        "query": sql,
-        "query_history": [sql]
-    }
-
-
-def evaluate_query_hybrid(state: QueryState):
-
-    print("ENTER evaluate_query_hybrid")
-
-    template = """
-You are an expert SQL Quality Assurance Agent for an HR Recruitment
-Question Answering system.
-
-Your task is to evaluate whether the generated SQL query correctly
-answers the user's HR recruitment question and follows the available
-HR database schema and SQL rules.
-
-The system contains TWO HR tables:
-
-1. master_df
-2. work_experience_df
-
-The tables are related using these three keys:
-
-- screening_header_id
-- requisition_header_id
-- candidate_line_id
-
-IMPORTANT JOIN RULE:
-
-screening_header_id is the MOST IMPORTANT matching key.
-
-When work experience information is required, the preferred
-relationship is:
-
-master_df.screening_header_id =
-work_experience_df.screening_header_id
-
-AND
-
-master_df.requisition_header_id =
-work_experience_df.requisition_header_id
-
-AND
-
-master_df.candidate_line_id =
-work_experience_df.candidate_line_id
-
-Do not join the tables using only candidate name.
-
---------------------------------------------------
-USER QUESTION
---------------------------------------------------
-
-{question}
-
---------------------------------------------------
-GENERATED SQL
---------------------------------------------------
-
-{query}
-
---------------------------------------------------
-HR DATABASE SCHEMA
---------------------------------------------------
-
-{hr_database_schema}
-
---------------------------------------------------
-TABLE 1: master_df
---------------------------------------------------
-
-This table contains:
-
-- requisition_header_id
-- requisition_number
-- requisition_id
-- requisition_title
-- requisition_state_name
-- requisition_phase_name
-- requisition_applications
-- requisition_jd_title
-- requisition_jd_about
-- requisition_jd_responsibilities
-- requisition_creation_date
-
-Candidate information:
-
-- candidate_line_id
-- candidate_job_application_id
-- candidate_person_id
-- candidate_name
-- candidate_requisition_id
-- candidate_requisition_number
-- candidate_public_state_name
-- candidate_recruiter_id
-- candidate_phase_id
-- candidate_state_id
-- candidate_email
-
-Screening information:
-
-- screening_header_id
-- screening_candidate_line_id
-- screening_requisition_header_id
-- screening_current_role
-- screening_skills
-- screening_skills
-- screening_education
-- screening_certifications
-- screening_ai_summary
-- screening_ai_score
-- screening_person_id
-- screening_person_number
-- screening_recruiter
-- screening_work_email
-
---------------------------------------------------
-TABLE 2: work_experience_df
---------------------------------------------------
-
-This table contains one row for each work-experience record.
-
-Columns:
-
-- line_id
-- screening_header_id
-- requisition_header_id
-- candidate_line_id
-- job_application_id
-- candidate_person_id
-- company_name
-- job_title
-- duration
-
-A candidate can have MULTIPLE work-experience rows.
-
-Example:
-
-screening_header_id = 47
-requisition_header_id = 61
-candidate_line_id = 114
-
-can have:
-
-Company:
-Sekmo Company
-
-Job Title:
-Civil Site Engineer
-
-Duration:
-Jan 2026–Present
-
-AND another row:
-
-Company:
-The Arab Contractors
-
-Job Title:
-Civil engineering intern
-
-Duration:
-Jul 2024–Aug 2024
-
-Therefore, do NOT assume that one candidate has only one
-work-experience record.
-
---------------------------------------------------
-EVALUATION RULES
---------------------------------------------------
-
-1. TABLE VALIDATION
-
-The SQL may use:
-
-master_df
-
-and/or
-
-work_experience_df
-
-depending on the user's question.
-
-Do not use any other table.
-
---------------------------------------------------
-
-2. MASTER TABLE QUESTIONS
 
 For questions about:
 
-- requisitions
-- candidates
-- candidate names
-- application status
+- requisition
+- job
+- job title
+- requisition title
+- requisition state
 - requisition status
 - requisition phase
-- education
-- certifications
-- AI score
-- AI summary
-- recruiter
-- job title
-- job description
 
-the SQL should normally use:
+use master_df.
 
-master_df
+Use:
 
---------------------------------------------------
+m.requisition_number
+m.requisition_title
+m.requisition_state_name
+m.requisition_phase_name
 
-3. WORK EXPERIENCE QUESTIONS
+============================================================
+IMPORTANT JOB TITLE RULE
+============================================================
 
-If the user asks about:
+When the user asks a question about a job title, return
+the identifying requisition information together with the
+requested property whenever appropriate.
 
-- work experience
-- companies worked for
-- previous companies
-- previous jobs
-- job titles held
-- duration of employment
-- years of experience
-- employment history
+For example:
 
-the SQL must use:
+User:
 
-work_experience_df
+"What is the state of the Site Engineer?"
 
---------------------------------------------------
+Do NOT generate only:
 
-4. QUESTIONS REQUIRING BOTH TABLES
-
-If the question asks for candidate information together
-with work experience, both tables should be used.
-
-Example:
-
-"Which companies did Mamdouh Salem work for?"
-
-The SQL should join:
-
-master_df
-
-with:
-
-work_experience_df
-
-using:
-
-screening_header_id
-requisition_header_id
-candidate_line_id
-
---------------------------------------------------
-
-5. JOIN VALIDATION
-
-When both tables are used, validate that the SQL joins them
-using the three common keys:
-
-screening_header_id
-requisition_header_id
-candidate_line_id
-
-Preferred join:
-
+SELECT
+    m.requisition_state_name
 FROM master_df m
-JOIN work_experience_df w
-  ON m.screening_header_id = w.screening_header_id
- AND m.requisition_header_id = w.requisition_header_id
- AND m.candidate_line_id = w.candidate_line_id
+WHERE LOWER(m.requisition_title) =
+      LOWER('Site Engineer');
 
-Do not approve a join based only on:
+Instead prefer:
 
-candidate_name
+SELECT
+    m.requisition_number,
+    m.requisition_title,
+    m.requisition_state_name
+FROM master_df m
+WHERE LOWER(m.requisition_title) =
+      LOWER('Site Engineer')
+LIMIT 50;
 
-or:
+This is important because multiple requisitions can have
+the same job title.
 
-candidate_person_id
+For example:
 
-or:
+Requisition 21 -> Site Engineer
+Requisition 102 -> Site Engineer
 
-job_application_id
+The answer must therefore preserve which state belongs
+to which requisition.
 
-when the three common keys are available.
+============================================================
+REQUISITION NUMBER
+============================================================
 
---------------------------------------------------
-
-6. CANDIDATE SEARCH
-
-If the user asks about a specific candidate,
-the SQL should normally search:
-
-m.candidate_name
-
-Example:
-
-LOWER(m.candidate_name) LIKE LOWER('%Mamdouh Salem%')
-
---------------------------------------------------
-
-7. REQUISITION SEARCH
-
-If the user asks about a requisition,
-the SQL should use:
+If the user provides a requisition number, use:
 
 m.requisition_number
 
-or:
-
-m.requisition_id
-
---------------------------------------------------
-
-8. JOB SEARCH
-
-If the user asks about a job title,
-the SQL should normally use:
-
-m.requisition_title
-
 Example:
 
-LOWER(m.requisition_title)
-LIKE LOWER('%Draughtsman%')
+SELECT
+    m.requisition_number,
+    m.requisition_title,
+    m.requisition_state_name
+FROM master_df m
+WHERE LOWER(m.requisition_number) =
+      LOWER('24');
 
---------------------------------------------------
+============================================================
+CANDIDATE QUESTIONS
+============================================================
 
-9. AI SCORE
+Use master_df for:
 
-If the user asks about AI screening scores,
-the SQL should use:
+candidate name
+candidate application
+candidate application status
+education
+certifications
+current role
+AI score
+AI summary
+skills
+
+============================================================
+CANDIDATE NAME
+============================================================
+
+Use:
+
+m.candidate_name
+
+For exact full-name matching:
+
+LOWER(m.candidate_name) =
+LOWER('Full Name')
+
+For partial matching:
+
+LOWER(m.candidate_name) LIKE
+LOWER('%name%')
+
+Do not silently choose one candidate when multiple
+candidate names can match.
+
+============================================================
+SKILLS
+============================================================
+
+Skills MUST use:
+
+m.screening_skills
+
+============================================================
+AI SCORE
+============================================================
+
+AI score MUST use:
 
 m.screening_ai_score
 
@@ -2503,285 +1372,284 @@ Lowest score:
 
 ORDER BY m.screening_ai_score ASC
 
---------------------------------------------------
+============================================================
+APPLICATION STATUS
+============================================================
 
-10. APPLICATION STATUS
-
-For candidate application status use:
+Use:
 
 m.candidate_public_state_name
 
---------------------------------------------------
+============================================================
+REQUISITION STATUS
+============================================================
 
-11. EDUCATION
+Use:
 
-For education questions use:
+m.requisition_state_name
 
-m.screening_education
+============================================================
+REQUISITION PHASE
+============================================================
 
---------------------------------------------------
+Use:
 
-12. CERTIFICATIONS
+m.requisition_phase_name
 
-For certification questions use:
+============================================================
+WORK EXPERIENCE
+============================================================
 
-m.screening_certifications
+Use:
 
---------------------------------------------------
+work_experience_df
 
-13. CURRENT ROLE
-
-For current role questions use:
-
-m.screening_current_role
-
---------------------------------------------------
-
-14. WORK EXPERIENCE
-
-For work experience questions use:
+Columns:
 
 w.company_name
 w.job_title
 w.duration
 
-Do not expect these columns inside master_df.
+============================================================
+WHEN BOTH TABLES ARE REQUIRED
+============================================================
 
---------------------------------------------------
+Use:
 
-15. YEARS OF EXPERIENCE
+master_df m
+JOIN work_experience_df w
 
-If the user asks:
+with:
 
-"How many years of experience does Mamdouh Salem have?"
+m.screening_header_id =
+w.screening_header_id
 
-The query should retrieve the relevant work-experience records
-from work_experience_df.
+AND
 
-Do not invent a years_of_experience column unless it exists.
+m.requisition_header_id =
+w.requisition_header_id
 
-The result summarizer may calculate or explain experience based
-on the returned duration values.
+AND
 
---------------------------------------------------
+m.candidate_line_id =
+w.candidate_line_id
 
-16. COMPANY QUESTIONS
+============================================================
+SQL RULES
+============================================================
 
-If the user asks:
+1. Return one SELECT query only.
 
-"Which companies did Mamdouh Salem work for?"
+2. Use SQLite-compatible SQL.
 
-Return:
+3. Never use SELECT *.
 
-w.company_name
+4. Never invent tables.
 
-and, when useful:
+5. Never invent columns.
 
-w.job_title
-w.duration
+6. Only use:
 
---------------------------------------------------
+   master_df
+   work_experience_df
 
-17. MULTIPLE WORK EXPERIENCE RECORDS
+7. Use LIMIT 50 for normal multi-row queries.
 
-A candidate may have multiple work-experience records.
+8. Do not use LIMIT for scalar aggregates.
 
-Do NOT use:
+9. Use LIMIT 1 only for explicitly single-result questions.
 
-LIMIT 1
+10. Use COUNT(DISTINCT ...) for unique candidate applications.
 
-when the user asks for all previous companies or complete
-work history.
+11. Never SUM requisition_applications.
 
-Return all matching work-experience records.
+12. Use LOWER(...) for case-insensitive comparisons.
 
---------------------------------------------------
+============================================================
+FINAL OUTPUT
+============================================================
 
-18. SQL SYNTAX
+Return SQL ONLY.
 
-The query must use valid SQLite-compatible SQL.
+No explanation.
 
-Only SELECT statements are allowed.
+No markdown.
 
-Do not allow:
+No JSON.
 
-- INSERT
-- UPDATE
-- DELETE
-- DROP
-- ALTER
-- CREATE
+No comments.
 
---------------------------------------------------
+"""
 
-19. SELECT *
+    prompt = PromptTemplate(
 
-Do not allow:
+        input_variables=[
+            "question",
+            "hr_database_schema"
+        ],
 
-SELECT *
+        template=template
+    )
 
-Always explicitly specify the required columns.
+    final_prompt_string = prompt.format(
 
---------------------------------------------------
+        question=state["question"],
 
-20. TEXT SEARCH
+        hr_database_schema=
+            HR_DATABASE_SCHEMA
+    )
 
-For flexible case-insensitive text searches use:
+    response = query_generator.invoke(
+        final_prompt_string
+    )
 
-LOWER(column) LIKE LOWER('%value%')
+    sql = clean_sql(
+        response.content
+    )
 
-For exact matching use:
+    print(
+        "Generated SQL:"
+    )
 
-LOWER(column) = LOWER('value')
+    print(
+        sql
+    )
 
---------------------------------------------------
+    print(
+        "EXIT generate_query_hybrid"
+    )
 
-21. LIMIT
+    return {
 
-Use LIMIT 50 for normal list queries.
+        "query":
+            sql,
 
-Do not use LIMIT 1 when the user asks for all work-experience
-records.
+        "query_history":
+            [sql]
+    }
 
-LIMIT 1 is appropriate only when the user explicitly asks
-for one highest/lowest result.
 
-For aggregate queries such as COUNT or AVG, LIMIT is not required.
+# ============================================================
+# EVALUATE SQL
+# ============================================================
 
---------------------------------------------------
+def evaluate_query_hybrid(
+    state: QueryState
+):
 
-22. COUNTING APPLICATIONS
+    print(
+        "ENTER evaluate_query_hybrid"
+    )
 
-For candidate/application counts, prefer:
+    template = """
 
-COUNT(DISTINCT m.candidate_job_application_id)
+You are an expert SQL Quality Assurance Agent for an HR
+Recruitment Question Answering system.
 
-Do not simply count rows if duplicate records may exist.
+Evaluate the generated SQL using ONLY the supplied schema
+and the user's question.
 
---------------------------------------------------
+USER QUESTION:
 
-23. REQUISITION APPLICATIONS
+{question}
 
-The value:
+GENERATED SQL:
 
-m.requisition_applications
+{query}
 
-belongs to the requisition and may be repeated for multiple
-candidate rows.
+SCHEMA:
 
-Do not SUM this value across candidate rows.
+{hr_database_schema}
 
---------------------------------------------------
+Rules:
 
-24. NO HALLUCINATION
+1. The SQL may use only master_df and work_experience_df.
 
-Do not invent columns.
+2. No invented columns.
 
-Do not use columns such as:
+3. No invented tables.
 
-- salary
-- location
-- phone_number
-- date_of_birth
+4. Only SELECT statements.
 
-unless they are explicitly available in the schema.
+5. No SELECT *.
 
---------------------------------------------------
+6. Requisition questions normally use master_df.
 
-25. QUESTION INTENT
+7. Candidate questions normally use master_df.
 
-The SQL must actually answer the user's question.
+8. Work experience questions use work_experience_df.
 
-Example:
+9. Questions requiring both must use all three relationship keys:
 
-Question:
+   m.screening_header_id = w.screening_header_id
 
-"Who is the highest scoring candidate for Draughtsman?"
+   AND
 
-Correct logic:
+   m.requisition_header_id = w.requisition_header_id
 
-- Filter the job title.
-- Use screening_ai_score.
-- Sort descending.
-- Return the highest candidate.
+   AND
 
-Example:
+   m.candidate_line_id = w.candidate_line_id
 
-Question:
+10. Job title questions must use requisition_title.
 
-"Which companies did Mamdouh Salem work for?"
+11. Requisition state questions must use requisition_state_name.
 
-Correct logic:
+12. Requisition phase questions must use requisition_phase_name.
 
-- Join master and work-experience tables.
-- Identify Mamdouh Salem using the master table.
-- Match using the three common keys.
-- Return company_name.
+13. Candidate application status must use
+    candidate_public_state_name.
 
---------------------------------------------------
+14. AI score must use screening_ai_score.
 
-26. DO NOT GENERATE NEW SQL
+15. Skills must use screening_skills.
 
-You are only evaluating the generated SQL.
+16. Do not approve SQL that changes the business meaning
+    of the user's question.
 
-Do not rewrite or generate a replacement SQL query.
-
---------------------------------------------------
-
-27. JSON OUTPUT
-
-Return strictly:
+Return ONLY:
 
 {{
     "evaluation": "approved",
-    "feedback": "The SQL correctly answers the question and follows the HR database schema."
+    "feedback": "The SQL correctly answers the question and follows the schema."
 }}
 
 OR:
 
 {{
     "evaluation": "needs_improvement",
-    "feedback": "Explain specifically what is wrong with the generated SQL."
+    "feedback": "Explain specifically what is wrong with the SQL."
 }}
-
---------------------------------------------------
-
-IMPORTANT
-
-Evaluate the SQL based on:
-
-1. User question
-2. Master table schema
-3. Work experience table schema
-4. Required relationship between the tables
-5. SQL correctness
-6. Question intent
-
-Only evaluate the generated SQL.
-
-Return JSON only.
 """
 
     prompt = PromptTemplate(
+
         input_variables=[
             "question",
             "query",
             "hr_database_schema"
         ],
+
         template=template
     )
 
     final_prompt_string = prompt.format(
+
         question=state["question"],
+
         query=state["query"],
-        hr_database_schema=HR_DATABASE_SCHEMA
+
+        hr_database_schema=
+            HR_DATABASE_SCHEMA
     )
 
     response = query_evaluator.invoke(
         final_prompt_string
     )
 
-    data = extract_json(response.content)
+    data = extract_json(
+        response.content
+    )
 
     evaluation = data.get(
         "evaluation",
@@ -2790,496 +1658,127 @@ Return JSON only.
 
     feedback = data.get(
         "feedback",
-        "No feedback provided"
+        "No feedback provided."
     )
 
     if evaluation not in [
         "approved",
         "needs_improvement"
     ]:
-        evaluation = "needs_improvement"
 
-    print("Evaluation:", evaluation)
-    print("Feedback:", feedback)
+        evaluation = (
+            "needs_improvement"
+        )
 
-    print("EXIT evaluate_query_hybrid")
+    print(
+        "Evaluation:",
+        evaluation
+    )
+
+    print(
+        "Feedback:",
+        feedback
+    )
+
+    print(
+        "EXIT evaluate_query_hybrid"
+    )
 
     return {
-        "evaluation": evaluation,
-        "feedback": feedback,
-        "feedback_history": [feedback]
+
+        "evaluation":
+            evaluation,
+
+        "feedback":
+            feedback,
+
+        "feedback_history":
+            [feedback]
     }
 
 
-def optimize_query_hybrid(state: QueryState):
+# ============================================================
+# OPTIMIZE SQL
+# ============================================================
 
-    print("ENTER optimize_query_hybrid")
+def optimize_query_hybrid(
+    state: QueryState
+):
+
+    print(
+        "ENTER optimize_query_hybrid"
+    )
 
     template = """
-You are an expert SQLite SQL Optimization Agent for an HR Recruitment
-Question Answering system.
 
-Your task is to correct and improve the generated SQL query based on:
+You are an expert SQLite SQL Optimization Agent.
 
-1. The user's original HR recruitment question.
-2. The current generated SQL query.
-3. The SQL evaluator's feedback.
-4. The HR recruitment database schema.
+Correct the generated SQL using:
 
-You must return ONLY the corrected SQL query.
+1. User question
+2. Current SQL
+3. Evaluator feedback
+4. HR database schema
 
---------------------------------------------------
-USER QUESTION
---------------------------------------------------
+USER QUESTION:
 
 {question}
 
---------------------------------------------------
-CURRENT SQL QUERY
---------------------------------------------------
+CURRENT SQL:
 
 {query}
 
---------------------------------------------------
-EVALUATOR FEEDBACK
---------------------------------------------------
+FEEDBACK:
 
 {feedback}
 
---------------------------------------------------
-HR DATABASE SCHEMA
---------------------------------------------------
+SCHEMA:
 
 {hr_database_schema}
 
---------------------------------------------------
-AVAILABLE TABLES
---------------------------------------------------
+Rules:
+
+- Only use master_df and work_experience_df.
+- Only SELECT statements.
+- Never use SELECT *.
+- Never invent columns.
+- Never invent tables.
+- Job title questions use requisition_title.
+- Requisition state uses requisition_state_name.
+- Requisition phase uses requisition_phase_name.
+- Candidate application state uses candidate_public_state_name.
+- AI score uses screening_ai_score.
+- Skills use screening_skills.
+- Work experience uses work_experience_df.
+- For JOINs use all three relationship keys.
+- For multiple matching job titles, return requisition_number,
+  requisition_title and the requested property when useful.
+- Return SQL only.
 
-There are TWO available SQLite tables.
-
-1. master_df
-
-This table contains:
-
-- Requisition information
-- Candidate information
-- Candidate application information
-- Screening information
-- AI screening score
-- Candidate education
-- Candidate certifications
-- Candidate summary
-
-2. work_experience_df
-
-This table contains candidate work experience.
-
-Its important columns are:
-
-- line_id
-- screening_header_id
-- requisition_header_id
-- candidate_line_id
-- job_application_id
-- candidate_person_id
-- company_name
-- job_title
-- duration
-
---------------------------------------------------
-IMPORTANT RELATIONSHIP BETWEEN TABLES
---------------------------------------------------
-
-The master table and work experience table are related using:
-
-screening_header_id
-requisition_header_id
-candidate_line_id
-
-IMPORTANT:
-
-screening_header_id is the MOST IMPORTANT relationship key.
-
-When joining the two tables, use all three keys:
-
-master.screening_header_id =
-work_experience.screening_header_id
-
-AND
-
-master.requisition_header_id =
-work_experience.requisition_header_id
-
-AND
-
-master.candidate_line_id =
-work_experience.candidate_line_id
-
-Do NOT join the tables using only candidate_name.
-
-Do NOT join the tables using only candidate_person_id.
-
-Do NOT join the tables using only requisition_header_id.
-
---------------------------------------------------
-TABLE USAGE RULES
---------------------------------------------------
-
-Use master_df when the question is about:
-
-- Requisition
-- Job title
-- Candidate
-- Candidate application
-- Application status
-- Requisition status
-- Requisition phase
-- Education
-- Certifications
-- AI score
-- AI summary
-- Recruiter
-- Candidate screening
-
-Use work_experience_df when the question is about:
-
-- Previous companies
-- Work experience
-- Previous job titles
-- Employment duration
-- Number of previous jobs
-- Companies worked for
-- Candidate employment history
-
---------------------------------------------------
-WHEN BOTH TABLES ARE REQUIRED
---------------------------------------------------
-
-Use a JOIN when the question requires both candidate/screening
-information and work experience.
-
-Example question:
-
-"Which companies did Mamdouh Salem work for?"
-
-Use:
-
-master_df
-+
-work_experience_df
-
-Example:
-
-SELECT
-    m.candidate_name,
-    w.company_name,
-    w.job_title,
-    w.duration
-FROM master_df m
-JOIN work_experience_df w
-    ON m.screening_header_id = w.screening_header_id
-    AND m.requisition_header_id = w.requisition_header_id
-    AND m.candidate_line_id = w.candidate_line_id
-WHERE LOWER(m.candidate_name) LIKE LOWER('%Mamdouh Salem%')
-LIMIT 50
-
---------------------------------------------------
-WORK EXPERIENCE QUESTIONS
---------------------------------------------------
-
-If the user asks:
-
-"How many years of work experience does Mamdouh Salem have?"
-
-Use the work experience table.
-
-Do not assume that WorkExperience is a column in the master
-table.
-
-Use:
-
-work_experience_df
-
-and its:
-
-duration
-
-column.
-
-If the duration values cannot safely be converted into a numeric
-number of years using SQLite alone, return the available
-employment records instead of inventing a total.
-
---------------------------------------------------
-COMPANY QUESTIONS
---------------------------------------------------
-
-If the user asks:
-
-"Which companies did Mamdouh Salem work for?"
-
-Use:
-
-w.company_name
-
-If the user asks:
-
-"Where did Mamdouh Salem work?"
-
-Return:
-
-candidate_name
-company_name
-job_title
-duration
-
---------------------------------------------------
-JOB TITLE QUESTIONS
---------------------------------------------------
-
-If the user asks:
-
-"What positions did Mamdouh Salem hold?"
-
-Use:
-
-w.job_title
-
-Do not use the master table's CurrentRole when the user is asking
-for complete previous employment history.
-
---------------------------------------------------
-DURATION QUESTIONS
---------------------------------------------------
-
-If the user asks about employment duration, use:
-
-w.duration
-
-Do not invent a numeric duration if the API provides textual
-duration values such as:
-
-"Jan 2026 – Present"
-
-"Jul 2024 – Aug 2024"
-
---------------------------------------------------
-CANDIDATE SEARCH
---------------------------------------------------
-
-If the question identifies a candidate, normally use:
-
-m.candidate_name
-
-Example:
-
-LOWER(m.candidate_name)
-LIKE
-LOWER('%Mamdouh Salem%')
-
---------------------------------------------------
-REQUISITION SEARCH
---------------------------------------------------
-
-If the question identifies a requisition, use the appropriate
-master table column:
-
-m.requisition_number
-
-or:
-
-m.requisition_id
-
---------------------------------------------------
-SCREENING SEARCH
---------------------------------------------------
-
-For screening information use:
-
-m.screening_ai_score
-m.screening_ai_summary
-m.screening_current_role
-m.screening_skills
-m.screening_education
-m.screening_certifications
-
---------------------------------------------------
-AI SCORE
---------------------------------------------------
-
-For highest AI score:
-
-ORDER BY CAST(m.screening_ai_score AS REAL) DESC
-
-For lowest AI score:
-
-ORDER BY CAST(m.screening_ai_score AS REAL) ASC
-
---------------------------------------------------
-APPLICATION STATUS
---------------------------------------------------
-
-Use:
-
-m.candidate_public_state_name
-
---------------------------------------------------
-REQUISITION STATUS
---------------------------------------------------
-
-Use:
-
-m.requisition_state_name
-
---------------------------------------------------
-REQUISITION PHASE
---------------------------------------------------
-
-Use:
-
-m.requisition_phase_name
-
---------------------------------------------------
-TEXT SEARCH
---------------------------------------------------
-
-For case-insensitive searches use:
-
-LOWER(column) LIKE LOWER('%value%')
-
---------------------------------------------------
-EXACT MATCH
---------------------------------------------------
-
-When the user provides an exact ID, use an exact comparison.
-
-Example:
-
-m.screening_header_id = 47
-
---------------------------------------------------
-SQL RULES
---------------------------------------------------
-
-1. Use only:
-
-   master_df
-
-   and/or
-
-   work_experience_df
-
-2. Only SELECT statements are allowed.
-
-3. Never use:
-
-   INSERT
-   UPDATE
-   DELETE
-   DROP
-   ALTER
-   CREATE
-
-4. Never use:
-
-   SELECT *
-
-5. Always explicitly specify columns.
-
-6. Use SQLite-compatible SQL syntax.
-
-7. Do not invent columns.
-
-8. Do not invent candidate information.
-
-9. Use table aliases:
-
-   m = master_df
-   w = work_experience_df
-
-10. Use LIMIT 50 for normal multi-row results.
-
-11. Use LIMIT 1 when the question asks for one highest,
-    lowest, or single result.
-
-12. Do not use LIMIT for scalar aggregate queries.
-
---------------------------------------------------
-JOIN RULE
---------------------------------------------------
-
-Whenever work experience is joined with master data, ALWAYS use:
-
-ON m.screening_header_id = w.screening_header_id
-AND m.requisition_header_id = w.requisition_header_id
-AND m.candidate_line_id = w.candidate_line_id
-
-screening_header_id has the highest importance.
-
---------------------------------------------------
-NO HALLUCINATION
---------------------------------------------------
-
-Do not invent columns such as:
-
-Salary
-Location
-PhoneNumber
-DateOfBirth
-
-unless they exist in the provided schema.
-
-Do not invent work experience.
-
-Use only records available in:
-
-work_experience_df
-
---------------------------------------------------
-BUSINESS MEANING
---------------------------------------------------
-
-Do not change the user's business meaning.
-
-Do not blindly follow evaluator feedback if it conflicts with
-the actual schema.
-
-Verify the query against the provided schema before returning it.
-
---------------------------------------------------
-OUTPUT
---------------------------------------------------
-
-Return ONLY the corrected SQL query.
-
-Do not return:
-
-- Explanation
-- Comments
-- Markdown
-- Code fences
-- JSON
-- Feedback
-
---------------------------------------------------
 """
 
     prompt = PromptTemplate(
+
         input_variables=[
             "question",
             "query",
             "feedback",
             "hr_database_schema"
         ],
+
         template=template
     )
 
     final_prompt_string = prompt.format(
+
         question=state["question"],
+
         query=state["query"],
+
         feedback=state["feedback"],
-        hr_database_schema=HR_DATABASE_SCHEMA
+
+        hr_database_schema=
+            HR_DATABASE_SCHEMA
     )
 
     response = query_optimizer.invoke(
@@ -3290,46 +1789,58 @@ Do not return:
         response.content
     )
 
-    print("Optimized SQL:")
-    print(optimized_sql)
+    print(
+        "Optimized SQL:"
+    )
 
-    print("EXIT optimize_query_hybrid")
+    print(
+        optimized_sql
+    )
+
+    print(
+        "EXIT optimize_query_hybrid"
+    )
 
     return {
-        "query": optimized_sql,
-        "iteration": state["iteration"] + 1,
-        "query_history": [optimized_sql]
+
+        "query":
+            optimized_sql,
+
+        "iteration":
+            state["iteration"] + 1,
+
+        "query_history":
+            [optimized_sql]
     }
 
 
+# ============================================================
+# RUN SQL
+# ============================================================
 
-def run_sql_node(state: QueryState):
+def run_sql_node(
+    state: QueryState
+):
 
-    print("ENTER run_sql_node")
+    print(
+        "ENTER run_sql_node"
+    )
 
     sql_query = state["query"]
 
     try:
 
-        # =====================================================
-        # 1. Get MASTER DataFrame
-        # =====================================================
+        master_df = (
+            state["master_df"].copy()
+        )
 
-        master_df = state[
-            "master_df"
-        ].copy()
+        work_experience_df = (
+            state["work_experience_df"].copy()
+        )
 
-        # =====================================================
-        # 2. Get WORK EXPERIENCE DataFrame
-        # =====================================================
-
-        work_experience_df = state[
-            "work_experience_df"
-        ].copy()
-
-        # =====================================================
-        # 3. Convert ID columns to numeric where possible
-        # =====================================================
+        # ====================================================
+        # CONVERT JOIN KEYS
+        # ====================================================
 
         master_keys = [
             "screening_header_id",
@@ -3361,44 +1872,78 @@ def run_sql_node(state: QueryState):
                     errors="coerce"
                 )
 
-        # =====================================================
-        # 4. SQL Environment
-        # =====================================================
+        # ====================================================
+        # SQL ENVIRONMENT
+        # ====================================================
 
         env = {
-            "master_df": master_df,
-            "work_experience_df": work_experience_df
+
+            "master_df":
+                master_df,
+
+            "work_experience_df":
+                work_experience_df
         }
 
-        # =====================================================
-        # 5. Prevent invalid special value from reaching SQLite
-        # =====================================================
+        # ====================================================
+        # CANNOT ANSWER
+        # ====================================================
 
-        if sql_query.strip() == "CANNOT_ANSWER_FROM_SCHEMA":
+        if (
+            sql_query.strip()
+            ==
+            "CANNOT_ANSWER_FROM_SCHEMA"
+        ):
 
             return {
-                "sql_result": "CANNOT_ANSWER_FROM_SCHEMA"
+
+                "sql_result":
+                    "CANNOT_ANSWER_FROM_SCHEMA"
             }
 
-        # =====================================================
-        # 6. Execute SQL
-        # =====================================================
+        # ====================================================
+        # EXECUTE
+        # ====================================================
 
-        print("SQL QUERY:")
-        print(sql_query)
+        print(
+            "SQL QUERY:"
+        )
+
+        print(
+            sql_query
+        )
 
         result = sqldf(
             sql_query,
             env
         )
 
-        print("SQL RESULT:")
-        print(result)
+        print(
+            "SQL RESULT:"
+        )
+
+        print(
+            result
+        )
+
+        # ====================================================
+        # IMPORTANT EMPTY-RESULT HANDLING
+        # ====================================================
+
+        if result.empty:
+
+            return {
+
+                "sql_result":
+                    ""
+            }
 
         return {
-            "sql_result": result.to_string(
-                index=False
-            )
+
+            "sql_result":
+                result.to_string(
+                    index=False
+                )
         }
 
     except Exception as e:
@@ -3413,114 +1958,242 @@ def run_sql_node(state: QueryState):
         )
 
         return {
-            "sql_result": f"SQL Error: {e}"
+
+            "sql_result":
+                f"SQL Error: {e}"
         }
 
 
-def handel_unknown_question(state: QueryState):
+# ============================================================
+# UNKNOWN QUESTION
+# ============================================================
 
-    print("ENTER handel_unknown_question")
+def handel_unknown_question(
+    state: QueryState
+):
+
+    print(
+        "ENTER handel_unknown_question"
+    )
 
     return {
-        "result_summary": (
-            "Sorry, this question cannot be answered "
-            "using the available HR recruitment data."
-        )
+
+        "result_summary":
+            (
+                "Sorry, this question cannot be answered "
+                "using the available HR recruitment data."
+            )
     }
 
-def result_summary(state: QueryState):
 
-    print("ENTER result_summary")
+# ============================================================
+# RESULT SUMMARY
+# ============================================================
+
+def result_summary(
+    state: QueryState
+):
+
+    print(
+        "ENTER result_summary"
+    )
+
+    sql_result = (
+        state.get(
+            "sql_result",
+            ""
+        )
+    )
+
+    # ========================================================
+    # EMPTY RESULT
+    # ========================================================
+
+    if not sql_result.strip():
+
+        return {
+
+            "result_summary":
+                (
+                    "No matching records were found."
+                )
+        }
+
+    # ========================================================
+    # CANNOT ANSWER
+    # ========================================================
+
+    if (
+        sql_result.strip()
+        ==
+        "CANNOT_ANSWER_FROM_SCHEMA"
+    ):
+
+        return {
+
+            "result_summary":
+                (
+                    "Sorry, this question cannot be answered "
+                    "using the available HR recruitment data."
+                )
+        }
+
+    # ========================================================
+    # SUMMARIZER PROMPT
+    # ========================================================
 
     template = """
+
 You are an HR Recruitment Data Analysis Assistant.
 
-Your job is to answer the user's question using ONLY the SQL
-result provided below.
+Answer the user's question using ONLY the SQL result below.
 
 Do not invent any information.
 
-Do not add information that is not present in the SQL result.
+Do not add information that does not exist in the SQL result.
 
-If the SQL result is empty, clearly state that no matching
-records were found.
+Do not mention SQL.
 
-Give the answer in clear and simple business language.
+Do not mention the database.
 
---------------------------------------------------
+Do not mention internal processing.
+
+============================================================
 USER QUESTION
---------------------------------------------------
+============================================================
 
 {question}
 
---------------------------------------------------
+============================================================
 SQL RESULT
---------------------------------------------------
+============================================================
 
 {sql_result}
 
---------------------------------------------------
-INSTRUCTIONS
---------------------------------------------------
+============================================================
+RULES
+============================================================
 
-1. Answer the user's question directly.
+1. Answer the question directly.
 
-2. Use only the information available in the SQL result.
+2. Use only information in the SQL result.
 
-3. Do not mention SQL, database tables, or internal processing.
+3. If there are multiple requisitions, clearly distinguish
+   them using requisition number.
 
-4. Do not invent candidate names, scores, skills, or other data.
+4. If there are multiple candidates, clearly distinguish
+   them.
 
-5. If multiple candidates are returned, summarize them clearly.
+5. If the SQL result contains:
 
-6. If the user asks "who is the highest", identify the highest
-   value from the SQL result.
+   requisition_number
+   requisition_title
+   requisition_state_name
 
-7. If the user asks "who is the lowest", identify the lowest
-   value from the SQL result.
+   preserve the relationship between those values.
 
-8. If the SQL result is empty, say that no matching records
-   were found.
+6. Do NOT say that information is missing if the SQL result
+   contains valid rows.
 
-9. Keep the response concise and easy to understand.
+7. If the SQL result is empty, state that no matching
+   records were found.
 
---------------------------------------------------
-RETURN
---------------------------------------------------
+8. If the user asks for a single value and exactly one
+   matching value exists, answer directly.
 
-Return only the final answer to the user.
+9. If multiple values exist, list them clearly.
+
+10. Keep the answer concise.
+
+Examples:
+
+Question:
+"What is the state of Site Engineer?"
+
+SQL result:
+
+requisition_number requisition_title requisition_state_name
+21                 Site Engineer     Posted
+102                Site Engineer     Unposted
+
+Answer:
+
+There are multiple Site Engineer requisitions:
+
+Requisition 21 — Posted
+Requisition 102 — Unposted
+
+Question:
+"What is the state of Python SDE-1?"
+
+SQL result:
+
+requisition_number requisition_title requisition_state_name
+138                Python SDE-1      In Progress
+
+Answer:
+
+Python SDE-1 is currently In Progress.
+
+Return only the final answer.
 """
 
     prompt = PromptTemplate(
+
         input_variables=[
             "question",
             "sql_result"
         ],
+
         template=template
     )
 
     final_prompt_string = prompt.format(
+
         question=state["question"],
-        sql_result=state["sql_result"]
+
+        sql_result=sql_result
     )
 
     response = result_summarizer_llm.invoke(
         final_prompt_string
     )
 
-    summary = response.content.strip()
+    summary = (
+        response.content.strip()
+    )
 
-    print("RESULT SUMMARY:")
-    print(summary)
+    print(
+        "RESULT SUMMARY:"
+    )
 
-    print("EXIT result_summary")
+    print(
+        summary
+    )
+
+    print(
+        "EXIT result_summary"
+    )
 
     return {
-        "result_summary": summary
+
+        "result_summary":
+            summary
     }
 
 
-builder = StateGraph(QueryState)
+# ============================================================
+# BUILD LANGGRAPH
+# ============================================================
+
+builder = StateGraph(
+    QueryState
+)
+
+
+# ============================================================
+# ADD NODES
+# ============================================================
 
 builder.add_node(
     "handel_unknown_question",
@@ -3558,29 +2231,42 @@ builder.add_node(
 )
 
 
-def route_after_intent(state: QueryState):
+# ============================================================
+# ROUTE AFTER INTENT
+# ============================================================
+
+def route_after_intent(
+    state: QueryState
+):
 
     route = state.get(
         "route",
         "UNKNOWN_ROUTE"
     )
 
-    print("ROUTE AFTER INTENT:", route)
+    print(
+        "ROUTE AFTER INTENT:",
+        route
+    )
 
     if route == "HYBRID_ROUTE":
-        return "generate_query_hybrid"
 
-    if route == "UNKNOWN_ROUTE":
-        return "handel_unknown_question"
+        return (
+            "generate_query_hybrid"
+        )
 
-    # Safety fallback
-    return "handel_unknown_question"
-
-
-
+    return (
+        "handel_unknown_question"
+    )
 
 
-def route_after_hybrid_evaluation(state: QueryState):
+# ============================================================
+# ROUTE AFTER EVALUATION
+# ============================================================
+
+def route_after_hybrid_evaluation(
+    state: QueryState
+):
 
     query = state.get(
         "query",
@@ -3621,68 +2307,82 @@ def route_after_hybrid_evaluation(state: QueryState):
         iteration
     )
 
-    # ============================================================
-    # 1. CANNOT ANSWER FROM SCHEMA
-    # ============================================================
+    # ========================================================
+    # CANNOT ANSWER
+    # ========================================================
 
-    if query == "CANNOT_ANSWER_FROM_SCHEMA":
+    if (
+        query
+        ==
+        "CANNOT_ANSWER_FROM_SCHEMA"
+    ):
 
-        print(
-            "Query cannot be answered from schema."
+        return (
+            "handel_unknown_question"
         )
 
-        return "handel_unknown_question"
+    # ========================================================
+    # APPROVED
+    # ========================================================
 
-    # ============================================================
-    # 2. APPROVED QUERY
-    # ============================================================
+    if (
+        evaluation
+        ==
+        "approved"
+    ):
 
-    if evaluation == "approved":
-
-        print(
-            "Evaluation approved -> run_sql"
+        return (
+            "run_sql"
         )
 
-        return "run_sql"
+    # ========================================================
+    # MAX ITERATIONS
+    # ========================================================
 
-    # ============================================================
-    # 3. MAX ITERATIONS
-    # ============================================================
+    if (
+        iteration
+        >=
+        max_iteration
+    ):
 
-    if iteration >= max_iteration:
-
-        print(
-            "Maximum query optimization iterations reached."
+        return (
+            "handel_unknown_question"
         )
 
-        return "handel_unknown_question"
+    # ========================================================
+    # OPTIMIZE
+    # ========================================================
 
-    # ============================================================
-    # 4. NEEDS IMPROVEMENT
-    # ============================================================
-
-    print(
-        "Query needs improvement -> optimize_query_hybrid"
+    return (
+        "optimize_query_hybrid"
     )
 
-    return "optimize_query_hybrid"
 
-
-
+# ============================================================
+# GRAPH EDGES
+# ============================================================
 
 builder.add_edge(
     START,
     "intent_router"
 )
 
+
 builder.add_conditional_edges(
+
     "intent_router",
+
     route_after_intent,
+
     {
-        "generate_query_hybrid": "generate_query_hybrid",
-        "handel_unknown_question": "handel_unknown_question"
+        "generate_query_hybrid":
+            "generate_query_hybrid",
+
+        "handel_unknown_question":
+            "handel_unknown_question"
     }
 )
+
 
 builder.add_edge(
     "generate_query_hybrid",
@@ -3691,12 +2391,20 @@ builder.add_edge(
 
 
 builder.add_conditional_edges(
+
     "evaluate_query_hybrid",
+
     route_after_hybrid_evaluation,
+
     {
-        "optimize_query_hybrid": "optimize_query_hybrid",
-        "run_sql": "run_sql",
-        "handel_unknown_question": "handel_unknown_question"
+        "optimize_query_hybrid":
+            "optimize_query_hybrid",
+
+        "run_sql":
+            "run_sql",
+
+        "handel_unknown_question":
+            "handel_unknown_question"
     }
 )
 
@@ -3706,26 +2414,35 @@ builder.add_edge(
     "evaluate_query_hybrid"
 )
 
+
 builder.add_edge(
     "run_sql",
     "result_summary"
 )
+
 
 builder.add_edge(
     "result_summary",
     END
 )
 
+
 builder.add_edge(
     "handel_unknown_question",
     END
 )
 
-sql_app = builder.compile()
+
 # ============================================================
-# 7. Execute HR Q&A
+# COMPILE GRAPH
 # ============================================================
 
+sql_app = builder.compile()
+
+
+# ============================================================
+# EXECUTE HR Q&A
+# ============================================================
 
 def executeSql(
     question: str,
@@ -3733,50 +2450,126 @@ def executeSql(
     work_experience_df: pd.DataFrame
 ):
 
-    print("EXECUTE SQL START")
+    print(
+        "EXECUTE SQL START"
+    )
 
-    # Create the initial state
+    # ========================================================
+    # INITIAL STATE
+    # ========================================================
+
     initial_state = {
-    "question": question,
 
-    "master_df": master_df,
+        "question":
+            question,
 
-    "work_experience_df": work_experience_df,
+        "master_df":
+            master_df,
 
-    "route_reason": "",
-    "route": "UNKNOWN_ROUTE",
+        "work_experience_df":
+            work_experience_df,
 
-    "query": "",
+        "route_reason":
+            "",
 
-    "evaluation": "needs_improvement",
-    "feedback": "",
+        "route":
+            "UNKNOWN_ROUTE",
 
-    "iteration": 0,
-    "max_iteration": 5,
+        "query":
+            "",
 
-    "sql_result": "",
-    "result_summary": "",
+        "evaluation":
+            "needs_improvement",
 
-    "query_history": [],
-    "feedback_history": []
-}
-    # Start the LangGraph workflow
+        "feedback":
+            "",
+
+        "iteration":
+            0,
+
+        "max_iteration":
+            5,
+
+        "sql_result":
+            "",
+
+        "result_summary":
+            "",
+
+        "query_history":
+            [],
+
+        "feedback_history":
+            []
+    }
+
+    # ========================================================
+    # RUN LANGGRAPH
+    # ========================================================
+
     final_state = sql_app.invoke(
         initial_state
     )
 
-    print("EXECUTE SQL END")
+    print(
+        "EXECUTE SQL END"
+    )
 
-    # Return the final results
+    # ========================================================
+    # RETURN RESULT
+    # ========================================================
+
     return {
-        "question": final_state["question"],
-        "route": final_state["route"],
-        "route_reason": final_state["route_reason"],
-        "query": final_state["query"],
-        "sql_result": final_state["sql_result"],
-        "result_summary": final_state["result_summary"],
-        "evaluation": final_state["evaluation"],
-        "feedback": final_state["feedback"],
-        "feedback_history": final_state["feedback_history"],
-        "query_history": final_state["query_history"]
+
+        "question":
+            final_state.get(
+                "question"
+            ),
+
+        "route":
+            final_state.get(
+                "route"
+            ),
+
+        "route_reason":
+            final_state.get(
+                "route_reason"
+            ),
+
+        "query":
+            final_state.get(
+                "query"
+            ),
+
+        "sql_result":
+            final_state.get(
+                "sql_result"
+            ),
+
+        "result_summary":
+            final_state.get(
+                "result_summary"
+            ),
+
+        "evaluation":
+            final_state.get(
+                "evaluation"
+            ),
+
+        "feedback":
+            final_state.get(
+                "feedback"
+            ),
+
+        "feedback_history":
+            final_state.get(
+                "feedback_history",
+                []
+            ),
+
+        "query_history":
+            final_state.get(
+                "query_history",
+                []
+            )
     }
