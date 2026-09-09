@@ -1415,4 +1415,3 @@ def get_candidate_from_dataframe(
             return row.to_dict()
 
     return None
-
