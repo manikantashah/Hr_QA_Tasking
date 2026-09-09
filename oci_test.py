@@ -48,7 +48,7 @@ def get_bearer_token():
 def call_agent(
     agent_name: str,
     body: dict,
-    max_attempts: int = 50
+    max_attempts: int = 70
 ):
 
     print(
