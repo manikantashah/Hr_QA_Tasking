@@ -196,9 +196,8 @@ def build_agent_body(agent_name, parameters):
     return body
 
 
-# ============================================================
+
 # NORMALIZE LIST
-# ============================================================
 
 def normalize_list(value):
 
