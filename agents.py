@@ -43,7 +43,7 @@ AGENTS = {
         }
     },
 
-    "INTERVIEWQUESTIONS": {
+    "INTERVIEW_QUESTION": {
 
     "description": (
         "Generates interview questions for a job requisition."
