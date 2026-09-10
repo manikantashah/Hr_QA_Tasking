@@ -24,6 +24,34 @@ class TaskState(TypedDict, total=False):
 
 
     # ========================================================
+    # FLOW / RESUME STAGE
+    # ========================================================
+    #
+    # This tells the orchestrator where the workflow currently
+    # is and where it should resume after user confirmation.
+    #
+    # Examples:
+    #
+    # START
+    # TITLE_RESOLUTION
+    # TITLE_SELECTION
+    # CANDIDATE_RESOLUTION
+    # CANDIDATE_SELECTION
+    # INTERVIEWER_RESOLUTION
+    # INTERVIEWER_SELECTION
+    # AVAILABILITY_CHECK
+    # AVAILABILITY_SLOT_SELECTION
+    # SCHEDULE_INTERVIEW
+    # COMPLETED
+    #
+    # This prevents already completed Oracle agents from being
+    # called again after a user selects an option.
+    # ========================================================
+
+    flow_stage: Optional[str]
+
+
+    # ========================================================
     # JOB REQUISITIONS
     # ========================================================
 
@@ -40,6 +68,19 @@ class TaskState(TypedDict, total=False):
 
 
     # ========================================================
+    # TITLE RESOLUTION / CONFIRMATION
+    # ========================================================
+
+    original_title_input: Optional[str]
+
+    suggested_title: Optional[str]
+
+    suggested_titles: List[str]
+
+    title_matches: List[Dict[str, Any]]
+
+
+    # ========================================================
     # CANDIDATE INFORMATION
     # ========================================================
 
@@ -50,6 +91,15 @@ class TaskState(TypedDict, total=False):
     candidate_email: Optional[str]
 
     candidate_emails: List[str]
+
+
+    # ========================================================
+    # CANDIDATE RESOLUTION / CONFIRMATION
+    # ========================================================
+
+    candidate_matches: List[Dict[str, Any]]
+
+    suggested_candidates: List[str]
 
 
     # ========================================================
@@ -68,6 +118,15 @@ class TaskState(TypedDict, total=False):
     interviewer_names: List[str]
 
     interviewer_emails: List[str]
+
+
+    # ========================================================
+    # INTERVIEWER RESOLUTION / CONFIRMATION
+    # ========================================================
+
+    interviewer_matches: List[Dict[str, Any]]
+
+    suggested_interviewers: List[str]
 
 
     # ========================================================
@@ -119,7 +178,6 @@ class TaskState(TypedDict, total=False):
 
     linkedin_result: Any
 
-    # NEW
     interview_questions_result: Any
 
 
@@ -140,29 +198,43 @@ class TaskState(TypedDict, total=False):
     # MEMORY / CONFIRMATION
     # ========================================================
 
-    # Original value typed by user when a typo is suspected
+    # --------------------------------------------------------
+    # Original values typed by the user
+    # --------------------------------------------------------
 
     original_candidate_input: Optional[str]
 
     original_interviewer_input: Optional[str]
 
+    original_title_input: Optional[str]
 
-    # Suggested value from Oracle data
+
+    # --------------------------------------------------------
+    # Suggested values from Oracle / resolver
+    # --------------------------------------------------------
 
     suggested_candidate: Optional[str]
 
     suggested_interviewer: Optional[str]
 
+    suggested_title: Optional[str]
 
+
+    # --------------------------------------------------------
     # Canonical values after user confirms
+    # --------------------------------------------------------
 
     confirmed_candidate_name: Optional[str]
 
     confirmed_interviewer_names: List[str]
 
+    confirmed_title_name: Optional[str]
+
 
     # ========================================================
     # FINAL RESPONSE
     # ========================================================
+
+    result_summary: Any
 
     final_response: str
