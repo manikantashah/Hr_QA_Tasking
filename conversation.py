@@ -5,7 +5,7 @@
 
 import json
 import re
-
+from datetime import datetime
 from main import llm_intent
 
 
@@ -28,48 +28,28 @@ def _safe_json_loads(value):
     # Already a dictionary
     # --------------------------------------------------------
 
-    if isinstance(
-        value,
-        dict
-    ):
-
+    if isinstance(value, dict):
         return value
 
     # --------------------------------------------------------
     # Must be a string
     # --------------------------------------------------------
 
-    if not isinstance(
-        value,
-        str
-    ):
-
+    if not isinstance(value, str):
         return {}
 
     content = value.strip()
 
     if not content:
-
         return {}
 
     # --------------------------------------------------------
     # Remove markdown fences
     # --------------------------------------------------------
 
-    if content.startswith(
-        "```"
-    ):
-
-        content = content.replace(
-            "```json",
-            ""
-        )
-
-        content = content.replace(
-            "```",
-            ""
-        )
-
+    if content.startswith("```"):
+        content = content.replace("```json", "")
+        content = content.replace("```", "")
         content = content.strip()
 
     # --------------------------------------------------------
@@ -77,20 +57,12 @@ def _safe_json_loads(value):
     # --------------------------------------------------------
 
     try:
+        parsed = json.loads(content)
 
-        parsed = json.loads(
-            content
-        )
-
-        if isinstance(
-            parsed,
-            dict
-        ):
-
+        if isinstance(parsed, dict):
             return parsed
 
     except json.JSONDecodeError:
-
         pass
 
     # --------------------------------------------------------
@@ -98,28 +70,344 @@ def _safe_json_loads(value):
     # --------------------------------------------------------
 
     try:
-
         decoder = json.JSONDecoder()
 
-        parsed, _ = decoder.raw_decode(
-            content
-        )
+        parsed, _ = decoder.raw_decode(content)
 
-        if isinstance(
-            parsed,
-            dict
-        ):
-
+        if isinstance(parsed, dict):
             return parsed
 
     except (
         json.JSONDecodeError,
         TypeError
     ):
-
         pass
 
     return {}
+
+
+# ============================================================
+# NORMALIZE DATE / TIME
+# ============================================================
+
+def _normalize_datetime_result(
+    user_message,
+    result
+):
+    """
+    Convert natural-language date/time values returned by the
+    LLM into ISO date/time values expected by the scheduling flow.
+
+    Example:
+
+        User:
+            September 15 from 09:30 AM to 10:00 AM.
+
+        LLM:
+            date = "September 15"
+            start_datetime = "09:30 AM"
+            end_datetime = "10:00 AM"
+
+        Final:
+            date = "2026-09-15"
+            start_datetime = "2026-09-15T09:30:00"
+            end_datetime = "2026-09-15T10:00:00"
+
+    If the user explicitly gives a year, that year is preserved.
+    """
+
+    # --------------------------------------------------------
+    # Current year
+    # --------------------------------------------------------
+
+    current_year = datetime.now().year
+
+    # --------------------------------------------------------
+    # User's latest message
+    # --------------------------------------------------------
+
+    user_text = str(
+        user_message
+    ).strip()
+
+    # --------------------------------------------------------
+    # Check whether the user explicitly supplied a year
+    #
+    # Examples:
+    #
+    # September 15, 2026
+    # September 15 2027
+    # 15/09/2026
+    # 2028-09-15
+    # --------------------------------------------------------
+
+    year_matches = re.findall(
+        r"\b(20\d{2})\b",
+        user_text
+    )
+
+    if year_matches:
+        target_year = int(
+            year_matches[0]
+        )
+    else:
+        target_year = current_year
+
+    # ========================================================
+    # GET VALUES FROM LLM RESULT
+    # ========================================================
+
+    date_value = result.get(
+        "date"
+    )
+
+    start_value = result.get(
+        "start_datetime"
+    )
+
+    end_value = result.get(
+        "end_datetime"
+    )
+
+    # ========================================================
+    # NORMALIZE DATE
+    # ========================================================
+
+    parsed_date = None
+
+    if date_value:
+
+        date_text = str(
+            date_value
+        ).strip()
+
+        # ----------------------------------------------------
+        # Already ISO date
+        # ----------------------------------------------------
+
+        try:
+
+            parsed_date = datetime.strptime(
+                date_text[:10],
+                "%Y-%m-%d"
+            )
+
+        except ValueError:
+
+            parsed_date = None
+
+        # ----------------------------------------------------
+        # Natural language date
+        #
+        # September 15
+        # September 15, 2026
+        # Sep 15
+        # Sep 15, 2026
+        # ----------------------------------------------------
+
+        if parsed_date is None:
+
+            formats = [
+                "%B %d",
+                "%B %d, %Y",
+                "%b %d",
+                "%b %d, %Y"
+            ]
+
+            for fmt in formats:
+
+                try:
+
+                    parsed_date = datetime.strptime(
+                        date_text,
+                        fmt
+                    )
+
+                    break
+
+                except ValueError:
+
+                    continue
+
+        # ----------------------------------------------------
+        # Apply target year
+        # ----------------------------------------------------
+
+        if parsed_date is not None:
+
+            parsed_date = parsed_date.replace(
+                year=target_year
+            )
+
+            result["date"] = parsed_date.strftime(
+                "%Y-%m-%d"
+            )
+
+    # ========================================================
+    # NORMALIZE START DATETIME
+    # ========================================================
+
+    if start_value:
+
+        start_text = str(
+            start_value
+        ).strip()
+
+        parsed_start = None
+
+        # ----------------------------------------------------
+        # Already full ISO datetime
+        # ----------------------------------------------------
+
+        try:
+
+            parsed_start = datetime.fromisoformat(
+                start_text
+            )
+
+        except ValueError:
+
+            parsed_start = None
+
+        # ----------------------------------------------------
+        # Natural time
+        #
+        # 09:30 AM
+        # 9:30 AM
+        # 14:30
+        # 9:30
+        # ----------------------------------------------------
+
+        if parsed_start is None:
+
+            time_formats = [
+                "%I:%M %p",
+                "%I %p",
+                "%H:%M"
+            ]
+
+            for fmt in time_formats:
+
+                try:
+
+                    parsed_time = datetime.strptime(
+                        start_text,
+                        fmt
+                    )
+
+                    parsed_start = parsed_time
+
+                    break
+
+                except ValueError:
+
+                    continue
+
+        # ----------------------------------------------------
+        # Combine time with the extracted date
+        # ----------------------------------------------------
+
+        if (
+            parsed_start is not None
+            and
+            parsed_date is not None
+        ):
+
+            parsed_start = parsed_start.replace(
+                year=target_year,
+                month=parsed_date.month,
+                day=parsed_date.day
+            )
+
+            result["start_datetime"] = (
+                parsed_start.strftime(
+                    "%Y-%m-%dT%H:%M:%S"
+                )
+            )
+
+    # ========================================================
+    # NORMALIZE END DATETIME
+    # ========================================================
+
+    if end_value:
+
+        end_text = str(
+            end_value
+        ).strip()
+
+        parsed_end = None
+
+        # ----------------------------------------------------
+        # Already full ISO datetime
+        # ----------------------------------------------------
+
+        try:
+
+            parsed_end = datetime.fromisoformat(
+                end_text
+            )
+
+        except ValueError:
+
+            parsed_end = None
+
+        # ----------------------------------------------------
+        # Natural time
+        #
+        # 10:00 AM
+        # 10 AM
+        # 14:30
+        # 10:00
+        # ----------------------------------------------------
+
+        if parsed_end is None:
+
+            time_formats = [
+                "%I:%M %p",
+                "%I %p",
+                "%H:%M"
+            ]
+
+            for fmt in time_formats:
+
+                try:
+
+                    parsed_time = datetime.strptime(
+                        end_text,
+                        fmt
+                    )
+
+                    parsed_end = parsed_time
+
+                    break
+
+                except ValueError:
+
+                    continue
+
+        # ----------------------------------------------------
+        # Combine time with the extracted date
+        # ----------------------------------------------------
+
+        if (
+            parsed_end is not None
+            and
+            parsed_date is not None
+        ):
+
+            parsed_end = parsed_end.replace(
+                year=target_year,
+                month=parsed_date.month,
+                day=parsed_date.day
+            )
+
+            result["end_datetime"] = (
+                parsed_end.strftime(
+                    "%Y-%m-%dT%H:%M:%S"
+                )
+            )
+
+    return result
 
 
 # ============================================================
@@ -161,7 +449,6 @@ def _clean_title_input(
     ).strip()
 
     if not title:
-
         return ""
 
     # --------------------------------------------------------
@@ -174,8 +461,7 @@ def _clean_title_input(
     # --------------------------------------------------------
 
     title = re.sub(
-        r"\s*\(\s*requisition\s*"
-        r"(?:number\s*)?\d+\s*\)\s*$",
+        r"\s*\(\s*requisition\s*(?:number\s*)?\d+\s*\)\s*$",
         "",
         title,
         flags=re.IGNORECASE
@@ -191,8 +477,7 @@ def _clean_title_input(
     # --------------------------------------------------------
 
     title = re.sub(
-        r"\s*[-,]\s*requisition\s*"
-        r"(?:number\s*)?\d+\s*$",
+        r"\s*[-,]\s*requisition\s*(?:number\s*)?\d+\s*$",
         "",
         title,
         flags=re.IGNORECASE
@@ -223,7 +508,7 @@ def _handle_title_multiple(
     Handle continuation when multiple job titles/requisitions
     were found.
 
-    Supported user responses:
+    Supported responses:
 
         1
         2
@@ -242,8 +527,6 @@ def _handle_title_multiple(
     Exact title:
 
         Site Engineer (Trainee)
-
-    A new title is sent back through JOB_REQUISITIONS.
     """
 
     user_input = str(
@@ -299,7 +582,9 @@ def _handle_title_multiple(
             "start_datetime": None,
             "end_datetime": None,
             "cancelled": True,
-            "message": "The current task has been cancelled."
+            "message": (
+                "The current task has been cancelled."
+            )
         }
 
     # ========================================================
@@ -324,7 +609,9 @@ def _handle_title_multiple(
 
     if user_input.isdigit():
 
-        number = int(user_input)
+        number = int(
+            user_input
+        )
 
         # ----------------------------------------------------
         # OPTION NUMBER
@@ -384,10 +671,8 @@ def _handle_title_multiple(
                 )
             ):
 
-                selected_title = (
-                    requisition_data.get(
-                        "Title"
-                    )
+                selected_title = requisition_data.get(
+                    "Title"
                 )
 
             if (
@@ -398,15 +683,14 @@ def _handle_title_multiple(
                 )
             ):
 
-                selected_requisition = (
-                    requisition_data.get(
-                        "RequisitionNumber"
-                    )
+                selected_requisition = requisition_data.get(
+                    "RequisitionNumber"
                 )
 
             if (
                 selected_title
-                and selected_requisition
+                and
+                selected_requisition
             ):
 
                 return {
@@ -427,7 +711,7 @@ def _handle_title_multiple(
                 }
 
         # ----------------------------------------------------
-        # DIRECT REQUISITION NUMBER
+        # Direct requisition number
         # ----------------------------------------------------
 
         return {
@@ -445,22 +729,15 @@ def _handle_title_multiple(
 
     # ========================================================
     # EXACT DISPLAYED OPTION
-    # ========================================================
     #
     # Example:
     #
-    # User:
-    #     Site Engineer (Requisition 21)
-    #
-    # We extract:
-    #
-    #     title = Site Engineer
-    #     requisition = 21
-    #
+    # Site Engineer (Requisition 21)
     # ========================================================
 
     option_match = re.match(
-        r"^\s*(.*?)\s*\(\s*requisition(?:\s+number)?\s+(\d+)\s*\)\s*$",
+        r"^\s*(.*?)\s*\(\s*requisition"
+        r"(?:\s+number)?\s+(\d+)\s*\)\s*$",
         user_input,
         flags=re.IGNORECASE
     )
@@ -485,7 +762,6 @@ def _handle_title_multiple(
                 match,
                 dict
             ):
-
                 continue
 
             match_title = match.get(
@@ -509,10 +785,8 @@ def _handle_title_multiple(
                 )
             ):
 
-                match_title = (
-                    requisition_data.get(
-                        "Title"
-                    )
+                match_title = requisition_data.get(
+                    "Title"
                 )
 
             if (
@@ -523,10 +797,8 @@ def _handle_title_multiple(
                 )
             ):
 
-                match_requisition = (
-                    requisition_data.get(
-                        "RequisitionNumber"
-                    )
+                match_requisition = requisition_data.get(
+                    "RequisitionNumber"
                 )
 
             # ------------------------------------------------
@@ -561,7 +833,7 @@ def _handle_title_multiple(
                 }
 
         # ----------------------------------------------------
-        # Requisition was not found in the stored matches
+        # Requisition not found
         # ----------------------------------------------------
 
         return {
@@ -626,6 +898,7 @@ def _handle_title_multiple(
         "message": ""
     }
 
+
 # ============================================================
 # HANDLE MULTIPLE CANDIDATES
 # ============================================================
@@ -636,40 +909,6 @@ def _handle_candidate_multiple(
 ):
     """
     Handle a continuation when multiple candidates were found.
-
-    Supports:
-
-        1
-        2
-        3
-
-    or:
-
-        exact candidate name
-
-    or:
-
-        candidate name with extra text
-
-    Example:
-
-        "1"
-            ->
-        first candidate
-
-        "Jithu Daniel"
-            ->
-        matching candidate
-
-    The selected candidate name is returned to api.py.
-
-    api.py then updates previous_state and reruns:
-
-        orchestrate()
-            ->
-        scheduling_flow()
-
-    The requisition number is preserved.
     """
 
     user_input = str(
@@ -683,36 +922,18 @@ def _handle_candidate_multiple(
     if not user_input:
 
         return {
-
-            "action":
-                "WAIT",
-
-            "candidate_name":
-                None,
-
-            "interviewer_names":
-                [],
-
-            "requisition_number":
-                None,
-
-            "title_name":
-                None,
-
-            "date":
-                None,
-
-            "start_datetime":
-                None,
-
-            "end_datetime":
-                None,
-
-            "cancelled":
-                False,
-
-            "message":
+            "action": "WAIT",
+            "candidate_name": None,
+            "interviewer_names": [],
+            "requisition_number": None,
+            "title_name": None,
+            "date": None,
+            "start_datetime": None,
+            "end_datetime": None,
+            "cancelled": False,
+            "message": (
                 "Please select a candidate by option number."
+            )
         }
 
     normalized = user_input.lower()
@@ -722,7 +943,6 @@ def _handle_candidate_multiple(
     # ========================================================
 
     cancel_words = {
-
         "cancel",
         "cancel it",
         "forget it",
@@ -734,36 +954,18 @@ def _handle_candidate_multiple(
     if normalized in cancel_words:
 
         return {
-
-            "action":
-                "CANCEL",
-
-            "candidate_name":
-                None,
-
-            "interviewer_names":
-                [],
-
-            "requisition_number":
-                None,
-
-            "title_name":
-                None,
-
-            "date":
-                None,
-
-            "start_datetime":
-                None,
-
-            "end_datetime":
-                None,
-
-            "cancelled":
-                True,
-
-            "message":
+            "action": "CANCEL",
+            "candidate_name": None,
+            "interviewer_names": [],
+            "requisition_number": None,
+            "title_name": None,
+            "date": None,
+            "start_datetime": None,
+            "end_datetime": None,
+            "cancelled": True,
+            "message": (
                 "The current task has been cancelled."
+            )
         }
 
     # ========================================================
@@ -793,8 +995,7 @@ def _handle_candidate_multiple(
         )
 
         if (
-            1 <= option_number
-            <= len(candidate_matches)
+            1 <= option_number <= len(candidate_matches)
         ):
 
             selected = candidate_matches[
@@ -807,36 +1008,19 @@ def _handle_candidate_multiple(
             ):
 
                 return {
-
-                    "action":
-                        "WAIT",
-
-                    "candidate_name":
-                        None,
-
-                    "interviewer_names":
-                        [],
-
-                    "requisition_number":
-                        None,
-
-                    "title_name":
-                        None,
-
-                    "date":
-                        None,
-
-                    "start_datetime":
-                        None,
-
-                    "end_datetime":
-                        None,
-
-                    "cancelled":
-                        False,
-
-                    "message":
-                        "The selected candidate could not be recovered. Please choose another option."
+                    "action": "WAIT",
+                    "candidate_name": None,
+                    "interviewer_names": [],
+                    "requisition_number": None,
+                    "title_name": None,
+                    "date": None,
+                    "start_datetime": None,
+                    "end_datetime": None,
+                    "cancelled": False,
+                    "message": (
+                        "The selected candidate could not "
+                        "be recovered. Please choose another option."
+                    )
                 }
 
             selected_candidate_name = (
@@ -866,77 +1050,36 @@ def _handle_candidate_multiple(
             if selected_candidate_name:
 
                 return {
-
-                    "action":
-                        "CONFIRM",
-
-                    "candidate_name":
-                        selected_candidate_name,
-
-                    "interviewer_names":
-                        [],
-
-                    "requisition_number":
-                        None,
-
-                    "title_name":
-                        None,
-
-                    "date":
-                        None,
-
-                    "start_datetime":
-                        None,
-
-                    "end_datetime":
-                        None,
-
-                    "cancelled":
-                        False,
-
-                    "message":
-                        ""
+                    "action": "CONFIRM",
+                    "candidate_name": selected_candidate_name,
+                    "interviewer_names": [],
+                    "requisition_number": None,
+                    "title_name": None,
+                    "date": None,
+                    "start_datetime": None,
+                    "end_datetime": None,
+                    "cancelled": False,
+                    "message": ""
                 }
 
         # ----------------------------------------------------
-        # A number that is not an option number is not a
-        # valid candidate selection.
+        # Invalid candidate option
         # ----------------------------------------------------
 
         return {
-
-            "action":
-                "WAIT",
-
-            "candidate_name":
-                None,
-
-            "interviewer_names":
-                [],
-
-            "requisition_number":
-                None,
-
-            "title_name":
-                None,
-
-            "date":
-                None,
-
-            "start_datetime":
-                None,
-
-            "end_datetime":
-                None,
-
-            "cancelled":
-                False,
-
-            "message":
-                (
-                    "That option number is not valid. "
-                    "Please select one of the listed candidates."
-                )
+            "action": "WAIT",
+            "candidate_name": None,
+            "interviewer_names": [],
+            "requisition_number": None,
+            "title_name": None,
+            "date": None,
+            "start_datetime": None,
+            "end_datetime": None,
+            "cancelled": False,
+            "message": (
+                "That option number is not valid. "
+                "Please select one of the listed candidates."
+            )
         }
 
     # ========================================================
@@ -951,7 +1094,6 @@ def _handle_candidate_multiple(
             match,
             dict
         ):
-
             continue
 
         candidate_name = (
@@ -979,7 +1121,6 @@ def _handle_candidate_multiple(
                 )
 
         if not candidate_name:
-
             continue
 
         if (
@@ -1029,36 +1170,16 @@ def _handle_candidate_multiple(
                 )
 
         return {
-
-            "action":
-                "CONFIRM",
-
-            "candidate_name":
-                selected_candidate_name,
-
-            "interviewer_names":
-                [],
-
-            "requisition_number":
-                None,
-
-            "title_name":
-                None,
-
-            "date":
-                None,
-
-            "start_datetime":
-                None,
-
-            "end_datetime":
-                None,
-
-            "cancelled":
-                False,
-
-            "message":
-                ""
+            "action": "CONFIRM",
+            "candidate_name": selected_candidate_name,
+            "interviewer_names": [],
+            "requisition_number": None,
+            "title_name": None,
+            "date": None,
+            "start_datetime": None,
+            "end_datetime": None,
+            "cancelled": False,
+            "message": ""
         }
 
     # ========================================================
@@ -1139,84 +1260,341 @@ def _handle_candidate_multiple(
                 )
 
         return {
-
-            "action":
-                "WAIT",
-
-            "candidate_name":
-                None,
-
-            "interviewer_names":
-                [],
-
-            "requisition_number":
-                None,
-
-            "title_name":
-                None,
-
-            "date":
-                None,
-
-            "start_datetime":
-                None,
-
-            "end_datetime":
-                None,
-
-            "cancelled":
-                False,
-
-            "message":
-                (
-                    "Multiple candidates have that name. "
-                    "Please select one:\n\n"
-                    +
-                    "\n".join(
-                        options
-                    )
+            "action": "WAIT",
+            "candidate_name": None,
+            "interviewer_names": [],
+            "requisition_number": None,
+            "title_name": None,
+            "date": None,
+            "start_datetime": None,
+            "end_datetime": None,
+            "cancelled": False,
+            "message": (
+                "Multiple candidates have that name. "
+                "Please select one:\n\n"
+                +
+                "\n".join(
+                    options
                 )
+            )
         }
 
     # ========================================================
-    # CANDIDATE NAME NOT FOUND IN STORED MATCHES
+    # CANDIDATE NAME NOT FOUND
     # ========================================================
 
     return {
+        "action": "WAIT",
+        "candidate_name": None,
+        "interviewer_names": [],
+        "requisition_number": None,
+        "title_name": None,
+        "date": None,
+        "start_datetime": None,
+        "end_datetime": None,
+        "cancelled": False,
+        "message": (
+            f"I could not match '{user_input}' "
+            "to the candidate options. "
+            "Please select a candidate by option number."
+        )
+    }
 
-        "action":
-            "WAIT",
 
-        "candidate_name":
-            None,
+# ============================================================
+# HANDLE AVAILABILITY SLOT
+# ============================================================
 
-        "interviewer_names":
-            [],
+def _handle_availability_slot(
+    previous_state,
+    user_message
+):
+    """
+    Handle continuation when the originally requested
+    interview slot is unavailable.
+    """
 
-        "requisition_number":
-            None,
+    user_input = str(
+        user_message
+    ).strip()
 
-        "title_name":
-            None,
+    # ========================================================
+    # EMPTY INPUT
+    # ========================================================
 
-        "date":
-            None,
+    if not user_input:
 
-        "start_datetime":
-            None,
-
-        "end_datetime":
-            None,
-
-        "cancelled":
-            False,
-
-        "message":
-            (
-                f"I could not match '{user_input}' "
-                "to the candidate options. "
-                "Please select a candidate by option number."
+        return {
+            "action": "WAIT",
+            "candidate_name": None,
+            "interviewer_names": [],
+            "requisition_number": None,
+            "title_name": None,
+            "date": None,
+            "start_datetime": None,
+            "end_datetime": None,
+            "confirmation_type": "availability_slot",
+            "cancelled": False,
+            "message": (
+                "Please select a preferred time slot "
+                "using its option number."
             )
+        }
+
+    normalized = user_input.lower()
+
+    # ========================================================
+    # CANCEL
+    # ========================================================
+
+    cancel_words = {
+        "cancel",
+        "cancel it",
+        "forget it",
+        "stop",
+        "never mind",
+        "nevermind"
+    }
+
+    if normalized in cancel_words:
+
+        return {
+            "action": "CANCEL",
+            "candidate_name": None,
+            "interviewer_names": [],
+            "requisition_number": None,
+            "title_name": None,
+            "date": None,
+            "start_datetime": None,
+            "end_datetime": None,
+            "cancelled": True,
+            "confirmation_type": "availability_slot",
+            "message": (
+                "The current interview scheduling task "
+                "has been cancelled."
+            )
+        }
+
+    # ========================================================
+    # GET STORED COMMON SLOTS
+    # ========================================================
+
+    common_slots = previous_state.get(
+        "common_slots",
+        []
+    )
+
+    if not isinstance(
+        common_slots,
+        list
+    ):
+
+        common_slots = []
+
+    # ========================================================
+    # NO STORED SLOTS
+    # ========================================================
+
+    if not common_slots:
+
+        return {
+            "action": "WAIT",
+            "candidate_name": None,
+            "interviewer_names": [],
+            "requisition_number": None,
+            "title_name": None,
+            "date": None,
+            "start_datetime": None,
+            "end_datetime": None,
+            "cancelled": False,
+            "confirmation_type": "availability_slot",
+            "message": (
+                "There are no available interview slots "
+                "stored for selection."
+            )
+        }
+
+    # ========================================================
+    # ACCEPT:
+    #
+    # 1
+    # 2
+    # 3
+    #
+    # OR:
+    #
+    # slot 1
+    # slot 2
+    # slot 3
+    # ========================================================
+
+    match = re.fullmatch(
+        r"(?:slot\s*)?(\d+)",
+        user_input,
+        flags=re.IGNORECASE
+    )
+
+    if match:
+
+        option_number = int(
+            match.group(1)
+        )
+
+        # ----------------------------------------------------
+        # VALID OPTION
+        # ----------------------------------------------------
+
+        if (
+            1 <= option_number <= len(common_slots)
+        ):
+
+            selected_slot = common_slots[
+                option_number - 1
+            ]
+
+            if not isinstance(
+                selected_slot,
+                dict
+            ):
+
+                return {
+                    "action": "WAIT",
+                    "candidate_name": None,
+                    "interviewer_names": [],
+                    "requisition_number": None,
+                    "title_name": None,
+                    "date": None,
+                    "start_datetime": None,
+                    "end_datetime": None,
+                    "cancelled": False,
+                    "confirmation_type": "availability_slot",
+                    "message": (
+                        "The selected time slot could not "
+                        "be recovered. Please choose another slot."
+                    )
+                }
+
+            selected_start = (
+                selected_slot.get(
+                    "startDateTime"
+                )
+            )
+
+            selected_end = (
+                selected_slot.get(
+                    "endDateTime"
+                )
+            )
+
+            # ------------------------------------------------
+            # Lowercase fallback
+            # ------------------------------------------------
+
+            if not selected_start:
+
+                selected_start = (
+                    selected_slot.get(
+                        "start_datetime"
+                    )
+                )
+
+            if not selected_end:
+
+                selected_end = (
+                    selected_slot.get(
+                        "end_datetime"
+                    )
+                )
+
+            # ------------------------------------------------
+            # Selected slot must have both times
+            # ------------------------------------------------
+
+            if (
+                not selected_start
+                or
+                not selected_end
+            ):
+
+                return {
+                    "action": "WAIT",
+                    "candidate_name": None,
+                    "interviewer_names": [],
+                    "requisition_number": None,
+                    "title_name": None,
+                    "date": None,
+                    "start_datetime": None,
+                    "end_datetime": None,
+                    "cancelled": False,
+                    "confirmation_type": "availability_slot",
+                    "message": (
+                        "The selected slot does not contain "
+                        "a valid start and end time. "
+                        "Please choose another slot."
+                    )
+                }
+
+            # ------------------------------------------------
+            # SUCCESSFUL SELECTION
+            # ------------------------------------------------
+
+            return {
+                "action": "CONFIRM",
+                "candidate_name": None,
+                "interviewer_names": [],
+                "requisition_number": None,
+                "title_name": None,
+                "date": None,
+                "start_datetime": selected_start,
+                "end_datetime": selected_end,
+                "cancelled": False,
+                "confirmation_type": "availability_slot",
+                "selected_slot": selected_slot,
+                "selected_slot_index": option_number,
+                "message": ""
+            }
+
+        # ----------------------------------------------------
+        # INVALID OPTION NUMBER
+        # ----------------------------------------------------
+
+        return {
+            "action": "WAIT",
+            "candidate_name": None,
+            "interviewer_names": [],
+            "requisition_number": None,
+            "title_name": None,
+            "date": None,
+            "start_datetime": None,
+            "end_datetime": None,
+            "cancelled": False,
+            "confirmation_type": "availability_slot",
+            "message": (
+                f"That slot number is not valid. "
+                f"Please select a slot between "
+                f"1 and {len(common_slots)}."
+            )
+        }
+
+    # ========================================================
+    # USER DID NOT PROVIDE A SLOT NUMBER
+    # ========================================================
+
+    return {
+        "action": "WAIT",
+        "candidate_name": None,
+        "interviewer_names": [],
+        "requisition_number": None,
+        "title_name": None,
+        "date": None,
+        "start_datetime": None,
+        "end_datetime": None,
+        "cancelled": False,
+        "confirmation_type": "availability_slot",
+        "message": (
+            "Please select a preferred time slot "
+            "using its option number."
+        )
     }
 
 
@@ -1230,28 +1608,29 @@ def handle_conversation(
 ):
 
     # ========================================================
-    # TITLE MULTIPLE
-    # ========================================================
+    # TITLE SELECTION / MULTIPLE TITLES
     #
-    # User enters a new title.
+    # IMPORTANT:
     #
-    # Example:
+    # Support BOTH:
     #
-    #     Site Engineer (Trainee)
+    #     confirmation_type = "title"
     #
-    # The title goes back through:
+    # and:
     #
-    #     JOB_REQUISITIONS
+    #     confirmation_type = "title_multiple"
     #
-    # again.
+    # This is required because SEND_EMAIL can use "title".
     # ========================================================
 
     if (
         previous_state.get(
             "confirmation_type"
         )
-        ==
-        "title_multiple"
+        in [
+            "title",
+            "title_multiple"
+        ]
     ):
 
         return _handle_title_multiple(
@@ -1261,22 +1640,6 @@ def handle_conversation(
 
     # ========================================================
     # MULTIPLE CANDIDATES
-    # ========================================================
-    #
-    # This is deterministic.
-    #
-    # Example:
-    #
-    # System:
-    #
-    #     1. Jithu Daniel
-    #     2. Jithu Kumar
-    #     3. Jithu Raj
-    #
-    # User:
-    #
-    #     1
-    #
     # ========================================================
 
     if (
@@ -1288,6 +1651,23 @@ def handle_conversation(
     ):
 
         return _handle_candidate_multiple(
+            previous_state,
+            user_message
+        )
+
+    # ========================================================
+    # AVAILABILITY SLOT
+    # ========================================================
+
+    if (
+        previous_state.get(
+            "confirmation_type"
+        )
+        ==
+        "availability_slot"
+    ):
+
+        return _handle_availability_slot(
             previous_state,
             user_message
         )
@@ -1319,7 +1699,6 @@ The user may:
 - cancel the task
 - ask a new question
 - provide partial information
-- answer naturally in different wording
 
 ============================================================
 PREVIOUS STATE
@@ -1378,6 +1757,11 @@ RULES
 
 14. Do not return markdown code fences.
 
+15. When the user provides a date without a year,
+    extract the month and day correctly.
+
+    Python will determine the year after the response.
+
 ============================================================
 OUTPUT
 ============================================================
@@ -1409,6 +1793,7 @@ WAIT
 Examples:
 
 User:
+
 "yes"
 
 If previous suggestion was Jithu Daniel:
@@ -1426,6 +1811,7 @@ If previous suggestion was Jithu Daniel:
 }}
 
 User:
+
 "No, use Mamdouh Salem."
 
 {{
@@ -1441,6 +1827,7 @@ User:
 }}
 
 User:
+
 "Actually make it 3 PM."
 
 {{
@@ -1456,6 +1843,7 @@ User:
 }}
 
 User:
+
 "Forget it."
 
 {{
@@ -1483,6 +1871,7 @@ If you cannot determine what the user means:
     "cancelled": false,
     "message": "A natural clarification question"
 }}
+
 """
 
     # ========================================================
@@ -1509,6 +1898,18 @@ If you cannot determine what the user means:
     )
 
     # ========================================================
+    # DEBUG: RAW LLM RESPONSE
+    # ========================================================
+
+    print(
+        "\nRAW LLM CONVERSATION RESPONSE:"
+    )
+
+    print(
+        content
+    )
+
+    # ========================================================
     # SAFE JSON PARSING
     # ========================================================
 
@@ -1523,36 +1924,57 @@ If you cannot determine what the user means:
     if not result:
 
         return {
-
-            "action":
-                "WAIT",
-
-            "candidate_name":
-                None,
-
-            "interviewer_names":
-                [],
-
-            "requisition_number":
-                None,
-
-            "date":
-                None,
-
-            "start_datetime":
-                None,
-
-            "end_datetime":
-                None,
-
-            "cancelled":
-                False,
-
-            "message":
-                (
-                    "I could not understand that response. "
-                    "Please clarify."
-                )
+            "action": "WAIT",
+            "candidate_name": None,
+            "interviewer_names": [],
+            "requisition_number": None,
+            "date": None,
+            "start_datetime": None,
+            "end_datetime": None,
+            "cancelled": False,
+            "message": (
+                "I could not understand that response. "
+                "Please clarify."
+            )
         }
+
+    # ========================================================
+    # NORMALIZE DATE / DATETIME
+    # ========================================================
+
+    result = _normalize_datetime_result(
+        user_message,
+        result
+    )
+
+    # ========================================================
+    # DEBUG: SHOW CORRECTED DATE/TIME
+    # ========================================================
+
+    print(
+        "\nCORRECTED CONVERSATION DATE/TIME:"
+    )
+
+    print(
+        json.dumps(
+            {
+                "date": result.get(
+                    "date"
+                ),
+                "start_datetime": result.get(
+                    "start_datetime"
+                ),
+                "end_datetime": result.get(
+                    "end_datetime"
+                )
+            },
+            indent=4,
+            default=str
+        )
+    )
+
+    # ========================================================
+    # RETURN FINAL RESULT
+    # ========================================================
 
     return result
