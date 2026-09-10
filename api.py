@@ -55,6 +55,7 @@ class QuestionRequest(BaseModel):
 # ============================================================
 
 def _ensure_dict(value):
+
     """
     Safely convert a value into a dictionary.
 
@@ -234,7 +235,24 @@ def _clear_conversation(
 
 
 # ============================================================
-# RESET OLD TASKING CONFIRMATION STATE
+# RESET TEMPORARY CONFIRMATION FLAGS
+# ============================================================
+#
+# IMPORTANT:
+#
+# We DO NOT clear confirmation_type here before
+# orchestrate() runs.
+#
+# scheduling_flow() needs confirmation_type to know
+# whether it should resume from a previous checkpoint.
+#
+# Example:
+#
+# confirmation_type = "availability_slot"
+#
+# must remain available while scheduling_flow()
+# executes its resume branch.
+#
 # ============================================================
 
 def _reset_confirmation_state(
@@ -245,13 +263,20 @@ def _reset_confirmation_state(
 
     state["waiting_for_user"] = False
 
-    state["confirmation_type"] = None
-
-    # Candidate suggestion
+    # --------------------------------------------------------
+    # IMPORTANT:
+    #
+    # DO NOT DO:
+    #
+    # state["confirmation_type"] = None
+    #
+    # before orchestration.
+    #
+    # The current confirmation type is needed by
+    # the resume logic.
+    # --------------------------------------------------------
 
     state["suggested_candidate"] = None
-
-    # Interviewer suggestion
 
     state["suggested_interviewer"] = None
 
@@ -637,6 +662,126 @@ def execute(
                         ] = value
 
             # =================================================
+            # UPDATE SELECTED SLOT
+            # =================================================
+            #
+            # IMPORTANT FOR AVAILABILITY RESUME.
+            #
+            # conversation.py returns selected_slot
+            # after user chooses an option such as:
+            #
+            # 5
+            #
+            # Store it in the existing state.
+            # =================================================
+
+            selected_slot = (
+                conversation_result.get(
+                    "selected_slot"
+                )
+            )
+
+            if selected_slot is not None:
+
+                previous_state[
+                    "selected_slot"
+                ] = selected_slot
+
+            # =================================================
+            # UPDATE FLOW STAGE
+            # =================================================
+            #
+            # This records the checkpoint reached by the
+            # current confirmation.
+            #
+            # It does not by itself execute the next stage.
+            # The orchestrator/specific flow must use the
+            # stored state when continuing.
+            # =================================================
+
+            confirmation_type = (
+                conversation_result.get(
+                    "confirmation_type"
+                )
+            )
+
+            if confirmation_type:
+
+                previous_state[
+                    "confirmation_type"
+                ] = confirmation_type
+
+            # -------------------------------------------------
+            # Availability slot continuation
+            # -------------------------------------------------
+
+            if (
+                confirmation_type
+                ==
+                "availability_slot"
+            ):
+
+                previous_state[
+                    "flow_stage"
+                ] = (
+                    "SCHEDULE_INTERVIEW"
+                )
+
+            # -------------------------------------------------
+            # Title continuation
+            # -------------------------------------------------
+
+            elif (
+                confirmation_type
+                in {
+                    "title",
+                    "title_multiple"
+                }
+            ):
+
+                previous_state[
+                    "flow_stage"
+                ] = (
+                    "TITLE_SELECTION"
+                )
+
+            # -------------------------------------------------
+            # Candidate continuation
+            # -------------------------------------------------
+
+            elif (
+                confirmation_type
+                in {
+                    "candidate",
+                    "candidate_multiple"
+                }
+            ):
+
+                previous_state[
+                    "flow_stage"
+                ] = (
+                    "CANDIDATE_SELECTION"
+                )
+
+            # -------------------------------------------------
+            # Interviewer continuation
+            # -------------------------------------------------
+
+            elif (
+                confirmation_type
+                in {
+                    "interviewer",
+                    "interviewer_multiple"
+                }
+            ):
+
+                previous_state[
+                    "flow_stage"
+                ] = (
+                    "INTERVIEWER_SELECTION"
+                )
+
+            # =================================================
             # IMPORTANT TITLE UPDATE
             # =================================================
             #
@@ -657,7 +802,6 @@ def execute(
             #     requisition_number = "21"
             #
             # In that case DO NOT clear 21.
-            #
             # =================================================
 
             new_title = (
@@ -677,11 +821,6 @@ def execute(
                 previous_state[
                     "title_name"
                 ] = new_title
-
-                # -------------------------------------------------
-                # Only clear requisition number when the title was
-                # supplied WITHOUT a selected requisition.
-                # -------------------------------------------------
 
                 if (
                     new_requisition_number is None
@@ -708,6 +847,58 @@ def execute(
                 previous_state[
                     "interviewer_names"
                 ] = interviewer_names
+
+            # =================================================
+            # UPDATE OTHER POSSIBLE RETURNED VALUES
+            # =================================================
+
+            returned_candidate_email = (
+                conversation_result.get(
+                    "candidate_email"
+                )
+            )
+
+            if returned_candidate_email:
+
+                previous_state[
+                    "candidate_email"
+                ] = returned_candidate_email
+
+            returned_job_application_id = (
+                conversation_result.get(
+                    "job_application_id"
+                )
+            )
+
+            if returned_job_application_id:
+
+                previous_state[
+                    "job_application_id"
+                ] = returned_job_application_id
+
+            returned_interviewer_emails = (
+                conversation_result.get(
+                    "interviewer_emails"
+                )
+            )
+
+            if returned_interviewer_emails:
+
+                previous_state[
+                    "interviewer_emails"
+                ] = returned_interviewer_emails
+
+            returned_common_slots = (
+                conversation_result.get(
+                    "common_slots"
+                )
+            )
+
+            if returned_common_slots is not None:
+
+                previous_state[
+                    "common_slots"
+                ] = returned_common_slots
 
             # =================================================
             # CANCEL
@@ -797,7 +988,22 @@ def execute(
             }:
 
                 # -------------------------------------------------
-                # Clear temporary confirmation flags.
+                # IMPORTANT
+                #
+                # DO NOT clear confirmation_type here.
+                #
+                # The old code did:
+                #
+                #     _reset_confirmation_state()
+                #
+                # which set:
+                #
+                #     confirmation_type = None
+                #
+                # before scheduling_flow() could inspect it.
+                #
+                # We still clear the temporary flags, but we keep
+                # confirmation_type until the next flow consumes it.
                 # -------------------------------------------------
 
                 _reset_confirmation_state(
@@ -805,8 +1011,60 @@ def execute(
                 )
 
                 # -------------------------------------------------
-                # DEBUG STATE
+                # Make sure selected slot confirmation is preserved.
                 # -------------------------------------------------
+
+                if (
+                    confirmation_type
+                    ==
+                    "availability_slot"
+                ):
+
+                    selected_slot = (
+                        conversation_result.get(
+                            "selected_slot"
+                        )
+                    )
+
+                    if selected_slot:
+
+                        previous_state[
+                            "selected_slot"
+                        ] = selected_slot
+
+                    selected_start = (
+                        conversation_result.get(
+                            "start_datetime"
+                        )
+                    )
+
+                    selected_end = (
+                        conversation_result.get(
+                            "end_datetime"
+                        )
+                    )
+
+                    if selected_start:
+
+                        previous_state[
+                            "start_datetime"
+                        ] = selected_start
+
+                    if selected_end:
+
+                        previous_state[
+                            "end_datetime"
+                        ] = selected_end
+
+                    previous_state[
+                        "flow_stage"
+                    ] = (
+                        "SCHEDULE_INTERVIEW"
+                    )
+
+                # =================================================
+                # DEBUG STATE
+                # =================================================
 
                 print(
                     "\n========================================"
@@ -819,6 +1077,21 @@ def execute(
                 print(
                     json.dumps(
                         {
+                            "flow_stage":
+                                previous_state.get(
+                                    "flow_stage"
+                                ),
+
+                            "confirmation_type":
+                                previous_state.get(
+                                    "confirmation_type"
+                                ),
+
+                            "selected_slot":
+                                previous_state.get(
+                                    "selected_slot"
+                                ),
+
                             "title_name":
                                 previous_state.get(
                                     "title_name"
@@ -834,9 +1107,24 @@ def execute(
                                     "candidate_name"
                                 ),
 
+                            "candidate_email":
+                                previous_state.get(
+                                    "candidate_email"
+                                ),
+
+                            "job_application_id":
+                                previous_state.get(
+                                    "job_application_id"
+                                ),
+
                             "interviewer_names":
                                 previous_state.get(
                                     "interviewer_names"
+                                ),
+
+                            "interviewer_emails":
+                                previous_state.get(
+                                    "interviewer_emails"
                                 ),
 
                             "start_datetime":
@@ -858,9 +1146,24 @@ def execute(
                     "========================================"
                 )
 
-                # -------------------------------------------------
-                # Run orchestration again.
-                # -------------------------------------------------
+                # =================================================
+                # RUN ORCHESTRATION
+                # =================================================
+                #
+                # IMPORTANT:
+                #
+                # The existing state is passed.
+                #
+                # We are NOT creating a new state.
+                #
+                # For availability_slot, scheduling_flow()
+                # will see:
+                #
+                # selected_slot
+                # confirmation_type = availability_slot
+                #
+                # and enter its resume branch.
+                # =================================================
 
                 orchestration_result = (
                     orchestrate(
@@ -872,14 +1175,45 @@ def execute(
                     orchestration_result
                 )
 
+                # =================================================
+                # UPDATE EXISTING STATE
+                # =================================================
+
                 previous_state.update(
                     orchestration_result
                 )
 
-                # -------------------------------------------------
-                # If another response is required,
-                # preserve state.
-                # -------------------------------------------------
+                # =================================================
+                # CLEAN UP AFTER SUCCESS
+                # =================================================
+                #
+                # Once the task is completed, confirmation_type
+                # no longer needs to remain in memory.
+                # =================================================
+
+                if not (
+                    previous_state.get(
+                        "waiting_for_user",
+                        False
+                    )
+                    or
+                    previous_state.get(
+                        "awaiting_confirmation",
+                        False
+                    )
+                ):
+
+                    previous_state[
+                        "confirmation_type"
+                    ] = None
+
+                    previous_state[
+                        "flow_stage"
+                    ] = "COMPLETED"
+
+                # =================================================
+                # PRESERVE STATE IF ANOTHER RESPONSE IS REQUIRED
+                # =================================================
 
                 if (
 
@@ -1010,6 +1344,9 @@ def execute(
                 "conversation_mode":
                     "TASKING",
 
+                "flow_stage":
+                    "START",
+
                 "waiting_for_user":
                     False,
 
@@ -1026,7 +1363,13 @@ def execute(
                     None,
 
                 "suggested_interviewers":
-                    None
+                    None,
+
+                "selected_slot":
+                    None,
+
+                "common_slots":
+                    []
 
             }
 
@@ -1047,6 +1390,56 @@ def execute(
             state.update(
                 orchestration_result
             )
+
+            # =================================================
+            # DETERMINE CHECKPOINT
+            # =================================================
+            #
+            # This is only inferred when the task has paused.
+            # =================================================
+
+            returned_confirmation_type = (
+                state.get(
+                    "confirmation_type"
+                )
+            )
+
+            if returned_confirmation_type == (
+                "availability_slot"
+            ):
+
+                state[
+                    "flow_stage"
+                ] = (
+                    "AVAILABILITY_SLOT_SELECTION"
+                )
+
+            elif returned_confirmation_type in {
+                "title",
+                "title_multiple"
+            }:
+
+                state[
+                    "flow_stage"
+                ] = "TITLE_SELECTION"
+
+            elif returned_confirmation_type in {
+                "candidate",
+                "candidate_multiple"
+            }:
+
+                state[
+                    "flow_stage"
+                ] = "CANDIDATE_SELECTION"
+
+            elif returned_confirmation_type in {
+                "interviewer",
+                "interviewer_multiple"
+            }:
+
+                state[
+                    "flow_stage"
+                ] = "INTERVIEWER_SELECTION"
 
             # =================================================
             # WAITING FOR USER
@@ -1078,6 +1471,10 @@ def execute(
             # =================================================
 
             else:
+
+                state[
+                    "flow_stage"
+                ] = "COMPLETED"
 
                 _clear_conversation(
                     conversation_id
