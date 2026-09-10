@@ -243,7 +243,7 @@ There are EXACTLY seven task types:
 
 6. LINKEDIN_JOB_DESC
 
-7. INTERVIEWQUESTIONS
+7. INTERVIEW_QUESTION
 
 
 ============================================================
@@ -917,10 +917,10 @@ Do not invent content.
 
 
 ============================================================
-7. INTERVIEWQUESTIONS
+7. INTERVIEW_QUESTION
 ============================================================
 
-Choose INTERVIEWQUESTIONS when the user wants to:
+Choose INTERVIEW_QUESTION when the user wants to:
 
 - get interview questions
 - generate interview questions
@@ -935,11 +935,11 @@ Choose INTERVIEWQUESTIONS when the user wants to:
 
 
 ============================================================
-INTERVIEWQUESTIONS - IMPORTANT INTENT RULE
+INTERVIEW_QUESTION - IMPORTANT INTENT RULE
 ============================================================
 
 If the user asks for QUESTIONS to use during an interview,
-the task is INTERVIEWQUESTIONS.
+the task is INTERVIEW_QUESTION.
 
 Examples:
 
@@ -977,7 +977,7 @@ The intended action must be considered.
 
 
 ============================================================
-INTERVIEWQUESTIONS - REQUISITION NUMBER
+INTERVIEW_QUESTION - REQUISITION NUMBER
 ============================================================
 
 If the user explicitly provides a requisition number,
@@ -990,7 +990,7 @@ Examples:
 Return:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "requisition_number": "44"
 }}
 
@@ -1000,7 +1000,7 @@ Return:
 Return:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "requisition_number": "100"
 }}
 
@@ -1010,7 +1010,7 @@ Return:
 Return:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "requisition_number": "44"
 }}
 
@@ -1023,7 +1023,7 @@ Do NOT guess a requisition number.
 
 
 ============================================================
-INTERVIEWQUESTIONS - JOB TITLE
+INTERVIEW_QUESTION - JOB TITLE
 ============================================================
 
 If the user provides a job or position title instead of
@@ -1036,7 +1036,7 @@ Examples:
 Return:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "requisition_number": null,
     "title_name": "Site Engineer"
 }}
@@ -1047,7 +1047,7 @@ Return:
 Return:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "requisition_number": null,
     "title_name": "Senior Software Engineer"
 }}
@@ -1058,7 +1058,7 @@ Return:
 Return:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "requisition_number": null,
     "title_name": "site enginner"
 }}
@@ -1077,7 +1077,7 @@ Do NOT:
 
 
 ============================================================
-INTERVIEWQUESTIONS - BOTH REQUISITION NUMBER AND TITLE
+INTERVIEW_QUESTION - BOTH REQUISITION NUMBER AND TITLE
 ============================================================
 
 If the user provides both a requisition number and a title,
@@ -1091,7 +1091,7 @@ Site Engineer."
 Return:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "requisition_number": "44",
     "title_name": "Site Engineer"
 }}
@@ -1101,7 +1101,7 @@ Do NOT remove either value.
 
 
 ============================================================
-INTERVIEWQUESTIONS - MISSING INFORMATION
+INTERVIEW_QUESTION - MISSING INFORMATION
 ============================================================
 
 If the user asks for interview questions but does not
@@ -1114,7 +1114,7 @@ Example:
 Return:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "requisition_number": null,
     "title_name": null
 }}
@@ -1127,7 +1127,7 @@ The orchestration layer will handle the missing information.
 
 
 ============================================================
-INTERVIEWQUESTIONS - TITLE BOUNDARY
+INTERVIEW_QUESTION - TITLE BOUNDARY
 ============================================================
 
 When extracting title_name, identify the complete job or
@@ -1164,7 +1164,7 @@ unless they are genuinely part of the title.
 
 
 ============================================================
-INTERVIEWQUESTIONS - ORCHESTRATION FLOW
+INTERVIEW_QUESTION - ORCHESTRATION FLOW
 ============================================================
 
 If requisition_number is provided:
@@ -1175,7 +1175,7 @@ If requisition_number is provided:
 
     Continue directly to:
 
-    INTERVIEWQUESTIONS
+    INTERVIEW_QUESTION
 
 
 If requisition_number is NOT provided but title_name
@@ -1189,7 +1189,7 @@ is provided:
                 ↓
         get RequisitionNumber
                 ↓
-        INTERVIEWQUESTIONS
+        INTERVIEW_QUESTION
 
 
 If neither requisition_number nor title_name is provided:
@@ -1419,7 +1419,7 @@ LinkedIn posting workflow
 INTERVIEW QUESTIONS
 ------------------------------------------------------------
 
-INTERVIEWQUESTIONS
+INTERVIEW_QUESTION
 
         ↓
 
@@ -1427,7 +1427,7 @@ If requisition number exists
 
         ↓
 
-INTERVIEWQUESTIONS
+INTERVIEW_QUESTION
 
         ↓
 
@@ -1453,7 +1453,7 @@ RequisitionNumber
 
         ↓
 
-INTERVIEWQUESTIONS
+INTERVIEW_QUESTION
 
         ↓
 
@@ -1535,7 +1535,7 @@ requisition_number is optional if interviewer names
 are provided.
 
 
-For INTERVIEWQUESTIONS:
+For INTERVIEW_QUESTION:
 
 requisition_number OR title_name may identify the
 requisition.
@@ -1747,7 +1747,7 @@ User:
 Correct:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "route_reason": "The user wants interview questions for requisition 44.",
     "candidate_name": null,
     "candidate_names": [],
@@ -1774,7 +1774,7 @@ User:
 Correct:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "route_reason": "The user wants interview questions for the Site Engineer position.",
     "candidate_name": null,
     "candidate_names": [],
@@ -1801,7 +1801,7 @@ User:
 Correct:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "route_reason": "The user wants interview questions for requisition 44.",
     "candidate_name": null,
     "candidate_names": [],
@@ -1828,7 +1828,7 @@ User:
 Correct:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "route_reason": "The user wants technical interview questions for the Senior Software Engineer position.",
     "candidate_name": null,
     "candidate_names": [],
@@ -1855,7 +1855,7 @@ User:
 Correct:
 
 {{
-    "task_type": "INTERVIEWQUESTIONS",
+    "task_type": "INTERVIEW_QUESTION",
     "route_reason": "The user wants interview questions but did not specify a requisition or job title.",
     "candidate_name": null,
     "candidate_names": [],
@@ -2089,7 +2089,7 @@ Rules:
    SCHEDULE_INTERVIEW
    SEND_EMAIL
    LINKEDIN_JOB_DESC
-   INTERVIEWQUESTIONS
+   INTERVIEW_QUESTION
 
 2. Use null for missing scalar values.
 
@@ -2161,21 +2161,21 @@ Rules:
     "in", "for", "the", or "position" in title_name when
     they are not part of the actual title.
 
-30. If the task is INTERVIEWQUESTIONS and the user provides
+30. If the task is INTERVIEW_QUESTION and the user provides
     a requisition number, extract it into requisition_number.
 
-31. If the task is INTERVIEWQUESTIONS and the user provides
+31. If the task is INTERVIEW_QUESTION and the user provides
     only a job title, extract it into title_name.
 
-32. If the task is INTERVIEWQUESTIONS and both are provided,
+32. If the task is INTERVIEW_QUESTION and both are provided,
     return both requisition_number and title_name.
 
-33. If the task is INTERVIEWQUESTIONS and neither is
+33. If the task is INTERVIEW_QUESTION and neither is
     provided, return both requisition_number and title_name
     as null.
 
 34. Do NOT invent a requisition number for
-    INTERVIEWQUESTIONS.
+    INTERVIEW_QUESTION.
 
 35. Do NOT classify a request for interview questions as
     SCHEDULE_INTERVIEW merely because the word "interview"
@@ -2275,7 +2275,7 @@ Before returning the answer:
 
         "LINKEDIN_JOB_DESC",
 
-        "INTERVIEWQUESTIONS"
+        "INTERVIEW_QUESTION"
     }
 
     task_type = (
