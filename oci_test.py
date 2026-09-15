@@ -1,4 +1,6 @@
-
+# ============================================================
+# oci_test.py
+# ============================================================
 
 import subprocess
 import os
@@ -6,11 +8,11 @@ import json
 import requests
 import time
 import sys
+
 from dotenv import load_dotenv
 from generate_token import get_access_token
+
 load_dotenv()
-
-
 
 
 # ============================================================
@@ -26,30 +28,57 @@ BASE_URL = os.getenv("BASE_URL")
 
 def get_bearer_token():
 
-    print("\nGenerating fresh access token...")
+    print(
+        "\nGenerating fresh access token..."
+    )
+
+    token_start = time.perf_counter()
 
     token = get_access_token()
+
+    token_time = (
+        time.perf_counter()
+        - token_start
+    )
+
+    print(
+        f"[TIMING] ACCESS TOKEN: "
+        f"{token_time:.2f} seconds"
+    )
 
     if not token:
         raise RuntimeError(
             "Access token was not returned."
         )
 
-    print("Access token extracted successfully.")
-    print("Token length:", len(token))
+    print(
+        "Access token extracted successfully."
+    )
+
+    print(
+        "Token length:",
+        len(token)
+    )
 
     return token
 
 
 # ============================================================
-# 3. CALL ORACLE AI AGENT
+# CALL ORACLE AI AGENT
 # ============================================================
 
 def call_agent(
     agent_name: str,
     body: dict,
-    max_attempts: int = 70
+    max_attempts: int = 70,
+    bearer_token: str = None
 ):
+
+    # ========================================================
+    # TOTAL START TIME
+    # ========================================================
+
+    total_start = time.perf_counter()
 
     print(
         "\n========================================"
@@ -69,13 +98,63 @@ def call_agent(
     )
 
     # ========================================================
-    # 1. Generate fresh bearer token
+    # 1. GET BEARER TOKEN
     # ========================================================
 
-    token = get_access_token()
+    if bearer_token:
+
+        # ----------------------------------------------------
+        # Reuse existing token
+        # ----------------------------------------------------
+
+        token = bearer_token
+
+        print(
+            f"\n[TIMING] {agent_name} "
+            f"| ACCESS TOKEN: REUSED"
+        )
+
+        print(
+            "Using existing bearer token."
+        )
+
+    else:
+
+        # ----------------------------------------------------
+        # Generate fresh token
+        # ----------------------------------------------------
+
+        print(
+            "\nGenerating fresh access token..."
+        )
+
+        token_start = time.perf_counter()
+
+        token = get_access_token()
+
+        token_time = (
+            time.perf_counter()
+            - token_start
+        )
+
+        print(
+            f"\n[TIMING] {agent_name} "
+            f"| ACCESS TOKEN: "
+            f"{token_time:.2f} seconds"
+        )
 
     # ========================================================
-    # 2. Headers
+    # TOKEN VALIDATION
+    # ========================================================
+
+    if not token:
+
+        raise RuntimeError(
+            "Access token was not returned."
+        )
+
+    # ========================================================
+    # 2. HEADERS
     # ========================================================
 
     headers = {
@@ -127,11 +206,97 @@ def call_agent(
     # 5. POST invokeAsync
     # ========================================================
 
-    response = requests.post(
-        post_url,
-        headers=headers,
-        json=body,
-        timeout=60
+    print(
+        f"\n[TIMING] {agent_name} "
+        f"| Starting invokeAsync..."
+    )
+
+    post_start = time.perf_counter()
+
+    try:
+
+        response = requests.post(
+            post_url,
+            headers=headers,
+            json=body,
+            timeout=60
+        )
+
+    except requests.exceptions.Timeout as e:
+
+        post_time = (
+            time.perf_counter()
+            - post_start
+        )
+
+        total_time = (
+            time.perf_counter()
+            - total_start
+        )
+
+        print(
+            f"[TIMING] {agent_name} "
+            f"| invokeAsync TIMEOUT: "
+            f"{post_time:.2f} seconds"
+        )
+
+        print(
+            f"[TIMING] {agent_name} "
+            f"| TOTAL TIME: "
+            f"{total_time:.2f} seconds"
+        )
+
+        print(
+            "\ninvokeAsync request timed out."
+        )
+
+        raise RuntimeError(
+            f"invokeAsync request timed out: {e}"
+        )
+
+    except requests.exceptions.RequestException as e:
+
+        post_time = (
+            time.perf_counter()
+            - post_start
+        )
+
+        total_time = (
+            time.perf_counter()
+            - total_start
+        )
+
+        print(
+            f"[TIMING] {agent_name} "
+            f"| invokeAsync REQUEST ERROR: "
+            f"{post_time:.2f} seconds"
+        )
+
+        print(
+            f"[TIMING] {agent_name} "
+            f"| TOTAL TIME: "
+            f"{total_time:.2f} seconds"
+        )
+
+        print(
+            "\nRequest Exception:"
+        )
+
+        print(
+            str(e)
+        )
+
+        raise
+
+    post_time = (
+        time.perf_counter()
+        - post_start
+    )
+
+    print(
+        f"[TIMING] {agent_name} "
+        f"| invokeAsync POST: "
+        f"{post_time:.2f} seconds"
     )
 
     print(
@@ -140,22 +305,107 @@ def call_agent(
     )
 
     # ========================================================
-    # 6. Check POST response
+    # 6. CHECK POST RESPONSE
     # ========================================================
 
     if response.status_code != 202:
 
-        print(
-            "\nAgent invocation failed."
+        total_time = (
+            time.perf_counter()
+            - total_start
         )
 
         print(
-            "Response:"
+            "\n========================================"
+        )
+
+        print(
+            "AGENT INVOCATION FAILED"
+        )
+
+        print(
+            "========================================"
+        )
+
+        print(
+            "Agent:",
+            agent_name
+        )
+
+        print(
+            "HTTP Status:",
+            response.status_code
+        )
+
+        print(
+            f"[TIMING] {agent_name} "
+            f"| FAILED TOTAL: "
+            f"{total_time:.2f} seconds"
+        )
+
+        # ----------------------------------------------------
+        # RESPONSE HEADERS
+        # ----------------------------------------------------
+
+        print(
+            "\nResponse Headers:"
+        )
+
+        try:
+
+            print(
+                json.dumps(
+                    dict(
+                        response.headers
+                    ),
+                    indent=4,
+                    default=str
+                )
+            )
+
+        except Exception:
+
+            print(
+                response.headers
+            )
+
+        # ----------------------------------------------------
+        # RESPONSE BODY
+        # ----------------------------------------------------
+
+        print(
+            "\nResponse Body:"
         )
 
         print(
             response.text
         )
+
+        # ----------------------------------------------------
+        # TRY JSON RESPONSE
+        # ----------------------------------------------------
+
+        try:
+
+            error_json = response.json()
+
+            print(
+                "\nResponse JSON:"
+            )
+
+            print(
+                json.dumps(
+                    error_json,
+                    indent=4,
+                    default=str
+                )
+            )
+
+        except Exception:
+
+            print(
+                "\nResponse is not JSON."
+            )
 
         raise RuntimeError(
             f"Agent invocation failed. "
@@ -163,7 +413,7 @@ def call_agent(
         )
 
     # ========================================================
-    # 7. Get jobId
+    # 7. GET jobId
     # ========================================================
 
     invoke_result = response.json()
@@ -198,7 +448,7 @@ def call_agent(
     )
 
     # ========================================================
-    # 8. Build GET status URL
+    # 8. BUILD GET STATUS URL
     # ========================================================
 
     get_url = (
@@ -216,8 +466,12 @@ def call_agent(
     )
 
     # ========================================================
-    # 9. Poll status
+    # 9. POLL STATUS
     # ========================================================
+
+    polling_start = time.perf_counter()
+
+    completed_attempt = None
 
     for attempt in range(
         1,
@@ -229,25 +483,171 @@ def call_agent(
             f" Attempt {attempt}"
         )
 
-        # ----------------------------------------------------
-        # GET status
-        # ----------------------------------------------------
+        # ====================================================
+        # START TIMER FOR STATUS REQUEST
+        # ====================================================
 
-        status_response = requests.get(
-            get_url,
-            headers=headers,
-            timeout=60
+        status_start = time.perf_counter()
+
+        try:
+
+            status_response = requests.get(
+                get_url,
+                headers=headers,
+                timeout=60
+            )
+
+        except requests.exceptions.Timeout as e:
+
+            status_time = (
+                time.perf_counter()
+                - status_start
+            )
+
+            total_time = (
+                time.perf_counter()
+                - total_start
+            )
+
+            print(
+                f"[TIMING] {agent_name} "
+                f"| STATUS GET Attempt {attempt} "
+                f"TIMEOUT: "
+                f"{status_time:.2f} seconds"
+            )
+
+            print(
+                f"[TIMING] {agent_name} "
+                f"| TOTAL TIME: "
+                f"{total_time:.2f} seconds"
+            )
+
+            print(
+                "\nStatus API request timed out:"
+            )
+
+            print(
+                str(e)
+            )
+
+            raise RuntimeError(
+                f"Status API request timed out: {e}"
+            )
+
+        except requests.exceptions.RequestException as e:
+
+            status_time = (
+                time.perf_counter()
+                - status_start
+            )
+
+            total_time = (
+                time.perf_counter()
+                - total_start
+            )
+
+            print(
+                f"[TIMING] {agent_name} "
+                f"| STATUS GET Attempt {attempt} "
+                f"REQUEST ERROR: "
+                f"{status_time:.2f} seconds"
+            )
+
+            print(
+                f"[TIMING] {agent_name} "
+                f"| TOTAL TIME: "
+                f"{total_time:.2f} seconds"
+            )
+
+            print(
+                "\nStatus Request Exception:"
+            )
+
+            print(
+                str(e)
+            )
+
+            raise
+
+        status_time = (
+            time.perf_counter()
+            - status_start
         )
 
-        # ----------------------------------------------------
-        # Check GET response
-        # ----------------------------------------------------
+        print(
+            f"[TIMING] {agent_name} "
+            f"| STATUS GET Attempt {attempt}: "
+            f"{status_time:.2f} seconds"
+        )
+
+        # ====================================================
+        # CHECK GET RESPONSE
+        # ====================================================
 
         if status_response.status_code != 200:
 
+            total_time = (
+                time.perf_counter()
+                - total_start
+            )
+
             print(
-                "Status API failed:",
+                "\n========================================"
+            )
+
+            print(
+                "STATUS API FAILED"
+            )
+
+            print(
+                "========================================"
+            )
+
+            print(
+                "Agent:",
+                agent_name
+            )
+
+            print(
+                "Attempt:",
+                attempt
+            )
+
+            print(
+                "Status Code:",
                 status_response.status_code
+            )
+
+            print(
+                f"[TIMING] {agent_name} "
+                f"| FAILED TOTAL: "
+                f"{total_time:.2f} seconds"
+            )
+
+            print(
+                "\nStatus Response Headers:"
+            )
+
+            try:
+
+                print(
+                    json.dumps(
+                        dict(
+                            status_response.headers
+                        ),
+                        indent=4,
+                        default=str
+                    )
+                )
+
+            except Exception:
+
+                print(
+                    status_response.headers
+                )
+
+            print(
+                "\nStatus Response Body:"
             )
 
             print(
@@ -258,17 +658,17 @@ def call_agent(
                 "Status API failed."
             )
 
-        # ----------------------------------------------------
-        # Convert response to JSON
-        # ----------------------------------------------------
+        # ====================================================
+        # CONVERT RESPONSE TO JSON
+        # ====================================================
 
         status_result = (
             status_response.json()
         )
 
-        # ----------------------------------------------------
-        # Get current status
-        # ----------------------------------------------------
+        # ====================================================
+        # GET CURRENT STATUS
+        # ====================================================
 
         current_status = (
             status_result.get(
@@ -287,6 +687,18 @@ def call_agent(
 
         if current_status == "COMPLETE":
 
+            completed_attempt = attempt
+
+            polling_time = (
+                time.perf_counter()
+                - polling_start
+            )
+
+            total_time = (
+                time.perf_counter()
+                - total_start
+            )
+
             print(
                 "\n========================================"
             )
@@ -299,6 +711,28 @@ def call_agent(
                 "========================================"
             )
 
+            print(
+                f"[TIMING] {agent_name} "
+                f"| POLLING TIME: "
+                f"{polling_time:.2f} seconds"
+            )
+
+            print(
+                f"[TIMING] {agent_name} "
+                f"| TOTAL CALL TIME: "
+                f"{total_time:.2f} seconds"
+            )
+
+            print(
+                f"[TIMING] {agent_name} "
+                f"| TOTAL ATTEMPTS: "
+                f"{completed_attempt}"
+            )
+
+            # ------------------------------------------------
+            # OUTPUT
+            # ------------------------------------------------
+
             agent_output = (
                 status_result.get(
                     "output"
@@ -306,7 +740,7 @@ def call_agent(
             )
 
             # ------------------------------------------------
-            # Output is null
+            # OUTPUT IS NULL
             # ------------------------------------------------
 
             if agent_output is None:
@@ -318,7 +752,7 @@ def call_agent(
                 return status_result
 
             # ------------------------------------------------
-            # Output may be JSON stored as a string
+            # OUTPUT MAY BE JSON STRING
             # ------------------------------------------------
 
             if isinstance(
@@ -334,11 +768,11 @@ def call_agent(
 
                 except json.JSONDecodeError:
 
-                    # It is just normal text
+                    # Normal text
                     pass
 
             # ------------------------------------------------
-            # Print agent output
+            # PRINT AGENT OUTPUT
             # ------------------------------------------------
 
             print(
@@ -364,7 +798,7 @@ def call_agent(
                 )
 
             # ------------------------------------------------
-            # Return full Oracle response
+            # RETURN FULL ORACLE RESPONSE
             # ------------------------------------------------
 
             return status_result
@@ -379,6 +813,16 @@ def call_agent(
             "CANCELLED"
         ]:
 
+            total_time = (
+                time.perf_counter()
+                - total_start
+            )
+
+            polling_time = (
+                time.perf_counter()
+                - polling_start
+            )
+
             print(
                 "\n========================================"
             )
@@ -389,6 +833,18 @@ def call_agent(
 
             print(
                 "========================================"
+            )
+
+            print(
+                f"[TIMING] {agent_name} "
+                f"| POLLING TIME: "
+                f"{polling_time:.2f} seconds"
+            )
+
+            print(
+                f"[TIMING] {agent_name} "
+                f"| TOTAL TIME: "
+                f"{total_time:.2f} seconds"
             )
 
             print(
@@ -422,11 +878,69 @@ def call_agent(
             "Agent is still running..."
         )
 
-        time.sleep(2)
+        # ====================================================
+        # POLLING SLEEP
+        # ====================================================
+
+        sleep_start = time.perf_counter()
+
+        # Keep polling interval at 1 second
+        time.sleep(1)
+
+        sleep_time = (
+            time.perf_counter()
+            - sleep_start
+        )
+
+        print(
+            f"[TIMING] {agent_name} "
+            f"| POLLING SLEEP: "
+            f"{sleep_time:.2f} seconds"
+        )
 
     # ========================================================
     # 10. TIMEOUT
     # ========================================================
+
+    total_time = (
+        time.perf_counter()
+        - total_start
+    )
+
+    polling_time = (
+        time.perf_counter()
+        - polling_start
+    )
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "AGENT TIMEOUT"
+    )
+
+    print(
+        "========================================"
+    )
+
+    print(
+        f"[TIMING] {agent_name} "
+        f"| POLLING TIME: "
+        f"{polling_time:.2f} seconds"
+    )
+
+    print(
+        f"[TIMING] {agent_name} "
+        f"| TOTAL TIME: "
+        f"{total_time:.2f} seconds"
+    )
+
+    print(
+        f"[TIMING] {agent_name} "
+        f"| MAX ATTEMPTS: "
+        f"{max_attempts}"
+    )
 
     raise TimeoutError(
         f"Agent did not complete within "
