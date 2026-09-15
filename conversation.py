@@ -1,4 +1,3 @@
-
 # ============================================================
 # conversation.py
 # ============================================================
@@ -14,6 +13,7 @@ from main import llm_intent
 # ============================================================
 
 def _safe_json_loads(value):
+
     """
     Safely parse JSON returned by the LLM.
 
@@ -48,8 +48,17 @@ def _safe_json_loads(value):
     # --------------------------------------------------------
 
     if content.startswith("```"):
-        content = content.replace("```json", "")
-        content = content.replace("```", "")
+
+        content = content.replace(
+            "```json",
+            ""
+        )
+
+        content = content.replace(
+            "```",
+            ""
+        )
+
         content = content.strip()
 
     # --------------------------------------------------------
@@ -57,9 +66,15 @@ def _safe_json_loads(value):
     # --------------------------------------------------------
 
     try:
-        parsed = json.loads(content)
 
-        if isinstance(parsed, dict):
+        parsed = json.loads(
+            content
+        )
+
+        if isinstance(
+            parsed,
+            dict
+        ):
             return parsed
 
     except json.JSONDecodeError:
@@ -70,11 +85,17 @@ def _safe_json_loads(value):
     # --------------------------------------------------------
 
     try:
+
         decoder = json.JSONDecoder()
 
-        parsed, _ = decoder.raw_decode(content)
+        parsed, _ = decoder.raw_decode(
+            content
+        )
 
-        if isinstance(parsed, dict):
+        if isinstance(
+            parsed,
+            dict
+        ):
             return parsed
 
     except (
@@ -94,6 +115,7 @@ def _normalize_datetime_result(
     user_message,
     result
 ):
+
     """
     Convert natural-language date/time values returned by the
     LLM into ISO date/time values expected by the scheduling flow.
@@ -101,14 +123,17 @@ def _normalize_datetime_result(
     Example:
 
         User:
+
             September 15 from 09:30 AM to 10:00 AM.
 
         LLM:
+
             date = "September 15"
             start_datetime = "09:30 AM"
             end_datetime = "10:00 AM"
 
         Final:
+
             date = "2026-09-15"
             start_datetime = "2026-09-15T09:30:00"
             end_datetime = "2026-09-15T10:00:00"
@@ -147,10 +172,13 @@ def _normalize_datetime_result(
     )
 
     if year_matches:
+
         target_year = int(
             year_matches[0]
         )
+
     else:
+
         target_year = current_year
 
     # ========================================================
@@ -417,6 +445,7 @@ def _normalize_datetime_result(
 def _clean_title_input(
     user_message
 ):
+
     """
     Remove a requisition number when the user includes it
     together with the title.
@@ -504,6 +533,7 @@ def _handle_title_multiple(
     previous_state,
     user_message
 ):
+
     """
     Handle continuation when multiple job titles/requisitions
     were found.
@@ -907,6 +937,7 @@ def _handle_candidate_multiple(
     previous_state,
     user_message
 ):
+
     """
     Handle a continuation when multiple candidates were found.
     """
@@ -1309,6 +1340,7 @@ def _handle_availability_slot(
     previous_state,
     user_message
 ):
+
     """
     Handle continuation when the originally requested
     interview slot is unavailable.
@@ -1599,6 +1631,168 @@ def _handle_availability_slot(
 
 
 # ============================================================
+# HANDLE SINGLE TITLE CONFIRMATION
+# ============================================================
+
+def _handle_single_title_confirmation(
+    previous_state,
+    user_message
+):
+
+    """
+    Handle confirmation when exactly one job title suggestion
+    was provided.
+
+    Example:
+
+        System:
+
+            I couldn't find an exact match for 'HCM lead'.
+            Did you mean 'Oracle HCM Functional Specialist'?
+
+        User:
+
+            yes
+
+    Result:
+
+        CONFIRM
+
+        title_name = ["Oracle HCM Functional Specialist"]
+
+        requisition_number = "130"
+
+    This function is used ONLY for confirmation_type = "title".
+
+    Multiple-title handling remains unchanged.
+    """
+
+    user_input = str(
+        user_message
+    ).strip()
+
+    normalized = user_input.lower()
+
+    # ========================================================
+    # AFFIRMATIVE RESPONSES
+    # ========================================================
+
+    confirmation_words = {
+        "yes",
+        "y",
+        "yeah",
+        "yep",
+        "yup",
+        "ok",
+        "okay",
+        "correct",
+        "confirm",
+        "confirmed",
+        "yes please",
+        "that one",
+        "use that",
+        "use it"
+    }
+
+    # ========================================================
+    # GET STORED SUGGESTION
+    # ========================================================
+
+    suggested_title = previous_state.get(
+        "suggested_title"
+    )
+
+    suggested_requisition_number = previous_state.get(
+        "suggested_requisition_number"
+    )
+
+    # ========================================================
+    # ALSO HANDLE VALUES LIKE:
+    #
+    # ['yes']
+    #
+    # because the task router may store the response this way.
+    # ========================================================
+
+    if (
+        normalized.startswith("[")
+        and
+        normalized.endswith("]")
+    ):
+
+        cleaned_confirmation = (
+            normalized[1:-1].strip()
+        )
+
+        cleaned_confirmation = (
+            cleaned_confirmation
+            .strip("'")
+            .strip('"')
+            .strip()
+        )
+
+        if cleaned_confirmation:
+
+            normalized = cleaned_confirmation
+
+    # ========================================================
+    # CONFIRM SINGLE SUGGESTION
+    # ========================================================
+
+    if (
+        normalized in confirmation_words
+        and
+        suggested_title
+        and
+        suggested_requisition_number
+    ):
+
+        print(
+            "\nSINGLE TITLE CONFIRMATION:"
+        )
+
+        print(
+            f"User response: {user_input}"
+        )
+
+        print(
+            f"Confirmed title: {suggested_title}"
+        )
+
+        print(
+            "Confirmed requisition: "
+            f"{suggested_requisition_number}"
+        )
+
+        return {
+            "action": "CONFIRM",
+            "candidate_name": None,
+            "interviewer_names": [],
+            "requisition_number": str(
+                suggested_requisition_number
+            ),
+            "title_name": [
+                str(
+                    suggested_title
+                ).strip()
+            ],
+            "date": None,
+            "start_datetime": None,
+            "end_datetime": None,
+            "cancelled": False,
+            "message": ""
+        }
+
+    # ========================================================
+    # NOT A CONFIRMATION
+    #
+    # Return None so existing title handling can continue.
+    # ========================================================
+
+    return None
+
+
+# ============================================================
 # HANDLE CONVERSATION RESPONSE
 # ============================================================
 
@@ -1610,28 +1804,53 @@ def handle_conversation(
     # ========================================================
     # TITLE SELECTION / MULTIPLE TITLES
     #
-    # IMPORTANT:
+    # confirmation_type = "title"
+    #     -> single suggestion
     #
-    # Support BOTH:
-    #
-    #     confirmation_type = "title"
-    #
-    # and:
-    #
-    #     confirmation_type = "title_multiple"
-    #
-    # This is required because SEND_EMAIL can use "title".
+    # confirmation_type = "title_multiple"
+    #     -> multiple suggestions
     # ========================================================
 
-    if (
-        previous_state.get(
-            "confirmation_type"
+    confirmation_type = previous_state.get(
+        "confirmation_type"
+    )
+
+    # ========================================================
+    # SINGLE TITLE CONFIRMATION
+    # ========================================================
+
+    if confirmation_type == "title":
+
+        single_title_result = (
+            _handle_single_title_confirmation(
+                previous_state,
+                user_message
+            )
         )
-        in [
-            "title",
-            "title_multiple"
-        ]
-    ):
+
+        if single_title_result is not None:
+
+            return single_title_result
+
+        # ----------------------------------------------------
+        # User did not confirm.
+        #
+        # Keep existing title handling so the user can enter
+        # another title.
+        # ----------------------------------------------------
+
+        return _handle_title_multiple(
+            previous_state,
+            user_message
+        )
+
+    # ========================================================
+    # MULTIPLE TITLE SELECTION
+    #
+    # Existing behavior remains unchanged.
+    # ========================================================
+
+    if confirmation_type == "title_multiple":
 
         return _handle_title_multiple(
             previous_state,
@@ -1643,9 +1862,7 @@ def handle_conversation(
     # ========================================================
 
     if (
-        previous_state.get(
-            "confirmation_type"
-        )
+        confirmation_type
         ==
         "candidate_multiple"
     ):
@@ -1660,9 +1877,7 @@ def handle_conversation(
     # ========================================================
 
     if (
-        previous_state.get(
-            "confirmation_type"
-        )
+        confirmation_type
         ==
         "availability_slot"
     ):
@@ -1677,6 +1892,7 @@ def handle_conversation(
     # ========================================================
 
     prompt = f"""
+
 You are handling a continuing HR recruitment conversation.
 
 The user has an existing pending task.
@@ -1785,9 +2001,13 @@ Use this structure:
 Allowed actions:
 
 CONFIRM
+
 CORRECT
+
 UPDATE
+
 CANCEL
+
 WAIT
 
 Examples:
