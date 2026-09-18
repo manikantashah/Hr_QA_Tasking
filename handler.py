@@ -3,6 +3,8 @@
 # Chat With HR / HR Q&A
 # ============================================================
 
+import re
+import json
 from main import (
     executeSql,
     get_hr_data,
@@ -27,31 +29,14 @@ def _build_title_result(
     master_df
 ):
     """
-    Convert master_df requisition information into the structure
-    expected by title_resolver.py.
-
-    title_resolver expects:
-
-        {
-            "output": {
-                "result": [
-                    {
-                        "Title": "...",
-                        "RequisitionNumber": "..."
-                    }
-                ]
-            }
-        }
+    Convert master_df requisition information into the
+    structure expected by title_resolver.py.
     """
 
     required_columns = [
         "requisition_title",
         "requisition_number"
     ]
-
-    # --------------------------------------------------------
-    # Check required columns
-    # --------------------------------------------------------
 
     for column in required_columns:
 
@@ -63,10 +48,6 @@ def _build_title_result(
                 }
             }
 
-    # --------------------------------------------------------
-    # Extract title + requisition
-    # --------------------------------------------------------
-
     title_df = (
         master_df[
             [
@@ -77,19 +58,11 @@ def _build_title_result(
         .copy()
     )
 
-    # --------------------------------------------------------
-    # Remove records without a title
-    # --------------------------------------------------------
-
     title_df = title_df.dropna(
         subset=[
             "requisition_title"
         ]
     )
-
-    # --------------------------------------------------------
-    # Remove duplicate title/requisition combinations
-    # --------------------------------------------------------
 
     title_df = title_df.drop_duplicates(
         subset=[
@@ -97,10 +70,6 @@ def _build_title_result(
             "requisition_number"
         ]
     )
-
-    # --------------------------------------------------------
-    # Convert to title_resolver format
-    # --------------------------------------------------------
 
     records = []
 
@@ -151,7 +120,7 @@ def _format_title_with_requisition(
     requisition_number
 ):
     """
-    Format title suggestion as:
+    Example:
 
         Site Engineer (Requisition 21)
     """
@@ -184,6 +153,447 @@ def _format_title_with_requisition(
 
 
 # ============================================================
+# EXTRACT EXPLICIT REQUISITION NUMBER
+# ============================================================
+
+def _extract_explicit_requisition_number(
+    question
+):
+    """
+    Extract the internal requisition instruction that is added
+    after a user selects a title.
+
+    Example:
+
+        Use Requisition Number 121 for the resolved job title.
+
+    Returns:
+
+        "121"
+
+    Otherwise:
+
+        None
+    """
+
+    if not question:
+
+        return None
+
+    match = re.search(
+        r"Use\s+Requisition\s+Number\s+(\d+)"
+        r"\s+for\s+the\s+resolved\s+job\s+title",
+        str(question),
+        flags=re.IGNORECASE
+    )
+
+    if not match:
+
+        return None
+
+    return (
+        match.group(
+            1
+        ).strip()
+    )
+
+
+# ============================================================
+# REMOVE EXPLICIT REQUISITION INSTRUCTION
+# ============================================================
+
+def _remove_requisition_instruction(
+    question
+):
+    """
+    Remove the internal continuation instruction before
+    extracting candidate/title information.
+
+    Example:
+
+        how many candidates are in Procurement Engineer
+
+        Use Requisition Number 121 for the resolved job title.
+
+    becomes:
+
+        how many candidates are in Procurement Engineer
+    """
+
+    if not question:
+
+        return ""
+
+    cleaned_question = re.sub(
+        r"Use\s+Requisition\s+Number\s+\d+"
+        r"\s+for\s+the\s+resolved\s+job\s+title\.?",
+        " ",
+        str(question),
+        flags=re.IGNORECASE
+    )
+
+    cleaned_question = re.sub(
+        r"[ \t]+",
+        " ",
+        cleaned_question
+    )
+
+    cleaned_question = re.sub(
+        r"\n\s*\n+",
+        "\n\n",
+        cleaned_question
+    )
+
+    return cleaned_question.strip()
+
+# ============================================================
+# DETECT REQUISITION COUNT QUERY
+# ============================================================
+
+def _is_requisition_count_query(
+    question
+):
+    """
+    Detect whether the user is asking for the total/count
+    of requisitions for a job title.
+
+    Examples:
+
+        How many requisitions of Site Engineer?
+
+        How many requisitions are there for Site Engineer?
+
+        What is the total number of requisitions for Site Engineer?
+
+        Give me the count of requisitions for Site Engineer.
+
+        Total requisitions of Site Engineer?
+
+        How many reqs are there for Site Engineer?
+    """
+
+    if not question:
+
+        return False
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        str(
+            question
+        ).strip().lower()
+    )
+
+    patterns = [
+        r"\bhow many requisitions\b",
+        r"\btotal number of requisitions\b",
+        r"\btotal requisitions\b",
+        r"\bnumber of requisitions\b",
+        r"\bcount of requisitions\b",
+        r"\bcount requisitions\b",
+        r"\bhow many reqs\b",
+        r"\btotal reqs\b",
+        r"\bcount of reqs\b",
+        r"\bcount reqs\b"
+    ]
+
+    for pattern in patterns:
+
+        if re.search(
+            pattern,
+            text
+        ):
+
+            return True
+
+    return False
+
+# ============================================================
+# DETECT WORK EXPERIENCE ROLE QUERY
+# ============================================================
+
+def _is_work_experience_role_query(
+    question
+):
+    """
+    Detect whether the user's title refers to a person's
+    work-experience job title rather than a requisition title.
+
+    Examples:
+
+        How many years did Akhil Kotha work as Oracle HCM Consultant?
+
+        How long did Akhil Kotha work as an Oracle HCM Consultant?
+
+        What experience does Akhil Kotha have as Oracle HCM Consultant?
+
+        How many months did Akhil Kotha work as HCM Consultant?
+
+    These questions should use:
+
+        work_experience_df.job_title
+
+    and should NOT go through the requisition title resolver.
+    """
+
+    if not question:
+
+        return False
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        str(
+            question
+        ).strip().lower()
+    )
+
+    patterns = [
+        r"\bworked\s+as\b",
+        r"\bwork\s+as\b",
+        r"\bworking\s+as\b",
+        r"\bexperience\s+as\b",
+        r"\bexperience\s+in\s+the\s+role\s+of\b",
+        r"\bworked\s+in\s+the\s+role\s+of\b",
+        r"\bwork\s+in\s+the\s+role\s+of\b",
+        r"\bhow\s+many\s+years\b.*\bworked\s+as\b",
+        r"\bhow\s+many\s+months\b.*\bworked\s+as\b",
+        r"\bhow\s+long\b.*\bworked\s+as\b"
+    ]
+
+    for pattern in patterns:
+
+        if re.search(
+            pattern,
+            text
+        ):
+
+            return True
+
+    return False
+
+# ============================================================
+# RESOLVE TITLE USING EXPLICIT REQUISITION
+# ============================================================
+
+def _resolve_title_for_requisition(
+    master_df,
+    requested_title,
+    requisition_number
+):
+    """
+    Resolve the title inside an explicitly selected
+    requisition.
+
+    This is used when the user has already selected a
+    specific requisition.
+
+    Example:
+
+        requested_title = "Procurement Engineer"
+        requisition_number = "121"
+
+    Result:
+
+        {
+            "status": "EXACT",
+            "requested_title": "Procurement Engineer",
+            "matched_title": "Procurement Engineer",
+            "requisition_number": "121"
+        }
+    """
+
+    if (
+        master_df is None
+        or
+        not requested_title
+        or
+        not requisition_number
+    ):
+
+        return None
+
+    required_columns = [
+        "requisition_title",
+        "requisition_number"
+    ]
+
+    for column in required_columns:
+
+        if column not in master_df.columns:
+
+            return None
+
+    requested_title_normalized = (
+        re.sub(
+            r"\s+",
+            " ",
+            str(
+                requested_title
+            ).strip()
+        ).lower()
+    )
+
+    requisition_normalized = (
+        str(
+            requisition_number
+        ).strip()
+    )
+
+    # ========================================================
+    # FIND SELECTED REQUISITION
+    # ========================================================
+
+    selected_rows = master_df[
+        master_df[
+            "requisition_number"
+        ]
+        .astype(str)
+        .str.strip()
+        ==
+        requisition_normalized
+    ].copy()
+
+    if selected_rows.empty:
+
+        print(
+            "\nEXPLICIT REQUISITION NOT FOUND:"
+        )
+
+        print(
+            requisition_normalized
+        )
+
+        return {
+            "status":
+                "NOT_FOUND",
+
+            "requested_title":
+                requested_title,
+
+            "requisition_number":
+                requisition_normalized
+        }
+
+    # ========================================================
+    # EXACT TITLE INSIDE SELECTED REQUISITION
+    # ========================================================
+
+    selected_rows[
+        "_normalized_title"
+    ] = (
+        selected_rows[
+            "requisition_title"
+        ]
+        .astype(str)
+        .str.replace(
+            r"\s+",
+            " ",
+            regex=True
+        )
+        .str.strip()
+        .str.lower()
+    )
+
+    exact_rows = selected_rows[
+        selected_rows[
+            "_normalized_title"
+        ]
+        ==
+        requested_title_normalized
+    ]
+
+    if not exact_rows.empty:
+
+        matched_title = (
+            exact_rows.iloc[0][
+                "requisition_title"
+            ]
+        )
+
+        result = {
+            "status":
+                "EXACT",
+
+            "requested_title":
+                requested_title,
+
+            "matched_title":
+                str(
+                    matched_title
+                ).strip(),
+
+            "requisition_number":
+                requisition_normalized
+        }
+
+        print(
+            "\nEXPLICIT REQUISITION RESOLUTION:"
+        )
+
+        print(
+            result
+        )
+
+        return result
+
+    # ========================================================
+    # FALLBACK
+    #
+    # The requisition was explicitly selected, so use the
+    # stored title for that requisition.
+    # ========================================================
+
+    first_row = (
+        selected_rows.iloc[0]
+    )
+
+    matched_title = first_row.get(
+        "requisition_title"
+    )
+
+    if matched_title:
+
+        result = {
+            "status":
+                "EXACT",
+
+            "requested_title":
+                requested_title,
+
+            "matched_title":
+                str(
+                    matched_title
+                ).strip(),
+
+            "requisition_number":
+                requisition_normalized
+        }
+
+        print(
+            "\nEXPLICIT REQUISITION RESOLUTION "
+            "USING STORED TITLE:"
+        )
+
+        print(
+            result
+        )
+
+        return result
+
+    return {
+        "status":
+            "NOT_FOUND",
+
+        "requested_title":
+            requested_title,
+
+        "requisition_number":
+            requisition_normalized
+    }
+
+
+# ============================================================
 # GET OUTPUT
 # ============================================================
 
@@ -204,7 +614,7 @@ def getOutput(
     )
 
     # ========================================================
-    # 1. GET HR DATA
+    # 1. LOAD HR DATA
     # ========================================================
 
     master_df, work_experience_df = (
@@ -222,12 +632,54 @@ def getOutput(
     )
 
     # ========================================================
-    # 2. EXTRACT CANDIDATE NAME
+    # 2. EXTRACT INTERNAL EXPLICIT REQUISITION
+    #
+    # This is used when a previous title-selection step added:
+    #
+    # Use Requisition Number 121 for the resolved job title.
+    # ========================================================
+
+    explicit_requisition_number = (
+        _extract_explicit_requisition_number(
+            question
+        )
+    )
+
+    if explicit_requisition_number:
+
+        print(
+            "\nEXPLICIT REQUISITION FOUND:"
+        )
+
+        print(
+            explicit_requisition_number
+        )
+
+    # ========================================================
+    # 3. REMOVE INTERNAL INSTRUCTION
+    # ========================================================
+
+    question_for_extraction = (
+        _remove_requisition_instruction(
+            question
+        )
+    )
+
+    print(
+        "\nQUESTION USED FOR EXTRACTION:"
+    )
+
+    print(
+        question_for_extraction
+    )
+
+    # ========================================================
+    # 4. EXTRACT CANDIDATE
     # ========================================================
 
     requested_candidate = (
         extract_candidate_name(
-            question
+            question_for_extraction
         )
     )
 
@@ -240,14 +692,81 @@ def getOutput(
     )
 
     # ========================================================
-    # 3. EXTRACT TITLE
+    # 5. EXTRACT TITLE + REQUISITION NUMBER
+    #
+    # extract_title_name() now returns:
+    #
+    # {
+    #     "title_name": "...",
+    #     "requisition_number": "..."
+    # }
+    #
+    # Example:
+    #
+    # {
+    #     "title_name": "Site Engineer",
+    #     "requisition_number": "44"
+    # }
     # ========================================================
 
+    title_info = extract_title_name(
+        question_for_extraction
+    )
+
+    # --------------------------------------------------------
+    # Safety check
+    #
+    # In case extract_title_name() returns None for any reason.
+    # --------------------------------------------------------
+
+    if not isinstance(
+        title_info,
+        dict
+    ):
+
+        title_info = {
+            "title_name":
+                None,
+
+            "requisition_number":
+                None
+        }
+
     requested_title = (
-        extract_title_name(
-            question
+        title_info.get(
+            "title_name"
         )
     )
+
+    requested_requisition_number = (
+        title_info.get(
+            "requisition_number"
+        )
+    )
+
+    # ========================================================
+    # DETERMINE WHETHER TITLE IS A WORK-EXPERIENCE ROLE
+    # ========================================================
+
+    is_work_experience_role_query = (
+        _is_work_experience_role_query(
+            question_for_extraction
+        )
+    )
+
+    print(
+        "\nWORK EXPERIENCE ROLE QUERY:"
+    )
+
+    print(
+        is_work_experience_role_query
+    )
+
+    print(
+            "\nTITLE / REQUISITION INFORMATION:")
+
+    print(
+            title_info)
 
     print(
         "\nREQUESTED TITLE:"
@@ -257,8 +776,16 @@ def getOutput(
         requested_title
     )
 
+    print(
+        "\nREQUESTED REQUISITION NUMBER:"
+    )
+
+    print(
+        requested_requisition_number
+    )
+
     # ========================================================
-    # 4. RESOLVE CANDIDATE NAME
+    # 6. RESOLVE CANDIDATE
     # ========================================================
 
     if requested_candidate:
@@ -279,7 +806,7 @@ def getOutput(
         )
 
         # ====================================================
-        # 4A. FUZZY MATCH / SUGGESTION
+        # 6A. CANDIDATE SUGGESTION
         # ====================================================
 
         if (
@@ -299,7 +826,6 @@ def getOutput(
             )
 
             return {
-
                 "status":
                     "WAITING_FOR_USER",
 
@@ -324,7 +850,7 @@ def getOutput(
             }
 
         # ====================================================
-        # 4B. CANDIDATE NOT FOUND
+        # 6B. CANDIDATE NOT FOUND
         # ====================================================
 
         if (
@@ -338,7 +864,6 @@ def getOutput(
         ):
 
             return {
-
                 "status":
                     "NOT_FOUND",
 
@@ -359,7 +884,7 @@ def getOutput(
             }
 
         # ====================================================
-        # 4C. MULTIPLE CANDIDATES
+        # 6C. MULTIPLE CANDIDATES
         # ====================================================
 
         if (
@@ -385,6 +910,7 @@ def getOutput(
                     match,
                     dict
                 ):
+
                     continue
 
                 candidate_data = (
@@ -439,6 +965,7 @@ def getOutput(
                 )
 
                 if not actual_name:
+
                     continue
 
                 valid_matches.append(
@@ -468,7 +995,6 @@ def getOutput(
             if not valid_matches:
 
                 return {
-
                     "status":
                         "NOT_FOUND",
 
@@ -521,20 +1047,7 @@ def getOutput(
                     option
                 )
 
-            message = (
-                f"I found multiple candidates matching "
-                f"'{requested_candidate}'.\n\n"
-                +
-                "\n".join(
-                    options
-                )
-                +
-                "\n\n"
-                "Please select one by option number."
-            )
-
             return {
-
                 "status":
                     "WAITING_FOR_USER",
 
@@ -551,11 +1064,21 @@ def getOutput(
                     question,
 
                 "message":
-                    message
+                    (
+                        f"I found multiple candidates matching "
+                        f"'{requested_candidate}'.\n\n"
+                        +
+                        "\n".join(
+                            options
+                        )
+                        +
+                        "\n\n"
+                        "Please select one by option number."
+                    )
             }
 
         # ====================================================
-        # 4D. EXACT MATCH
+        # 6D. EXACT CANDIDATE
         # ====================================================
 
         if (
@@ -598,10 +1121,21 @@ def getOutput(
                 )
 
     # ========================================================
-    # 5. RESOLVE TITLE
+    # 7. TITLE RESOLUTION
+    #
+    # IMPORTANT:
+    #
+    # This must happen BEFORE executeSql().
+    #
+    # ALL title similarity/fuzzy logic remains inside
+    # title_resolver.py.
     # ========================================================
 
-    if requested_title:
+    if (
+    requested_title
+    and
+    not is_work_experience_role_query
+):
 
         print(
             "\nBUILDING TITLE RESOLVER DATA..."
@@ -619,10 +1153,64 @@ def getOutput(
             title_result
         )
 
-        title_match = resolve_title(
-            title_result,
-            requested_title
+        # ====================================================
+        # DETERMINE WHICH REQUISITION NUMBER TO USE
+        #
+        # There can be two sources:
+        #
+        # 1. User explicitly provided:
+        #
+        #    "Site Engineer requisition 44"
+        #
+        # 2. Previous multi-title selection added:
+        #
+        #    "Use Requisition Number 121 for the resolved
+        #     job title."
+        #
+        # The internal continuation instruction has priority
+        # because it represents a previously confirmed selection.
+        # ====================================================
+
+        requisition_to_use = (
+            explicit_requisition_number
+            or
+            requested_requisition_number
         )
+
+        print(
+            "\nREQUISITION TO USE:"
+        )
+
+        print(
+            requisition_to_use
+        )
+
+        # ====================================================
+        # EXPLICIT REQUISITION
+        # ====================================================
+
+        if requisition_to_use:
+
+            title_match = (
+                _resolve_title_for_requisition(
+                    master_df,
+                    requested_title,
+                    requisition_to_use
+                )
+            )
+
+        # ====================================================
+        # NO EXPLICIT REQUISITION
+        #
+        # Let title_resolver.py do the matching.
+        # ====================================================
+
+        else:
+
+            title_match = resolve_title(
+                title_result,
+                requested_title
+            )
 
         print(
             "\nTITLE MATCH RESULT:"
@@ -633,7 +1221,7 @@ def getOutput(
         )
 
         # ====================================================
-        # 5A. TITLE NOT FOUND
+        # 7A. TITLE NOT FOUND
         # ====================================================
 
         if (
@@ -647,15 +1235,17 @@ def getOutput(
         ):
 
             return {
-
                 "status":
-                    "NOT_FOUND",
+                    "WAITING_FOR_USER",
 
                 "title_match":
                     "NOT_FOUND",
 
                 "requested_title":
                     requested_title,
+
+                "requested_requisition_number":
+                    requisition_to_use,
 
                 "original_question":
                     question,
@@ -673,9 +1263,292 @@ def getOutput(
                 "status"
             )
         )
+        # ========================================================
+        # 7B. AGGREGATE REQUISITION COUNT
+        #
+        # Example:
+        #
+        # "How many requisitions of Site Engineer?"
+        #
+        # Do NOT select one requisition.
+        #
+        # If title resolver returns:
+        #
+        #   Site Engineer       -> 102
+        #   Site Engineer       -> 21
+        #   Senior Site Engineer -> 94
+        #   Site Engineer (Trainee) -> 44
+        #
+        # only the EXACT title "Site Engineer" is used.
+        #
+        # SQL should count all matching requisitions.
+        # ========================================================
+
+        is_requisition_count_query = (
+            _is_requisition_count_query(
+                question_for_extraction
+            )
+        )
+
+        if (
+            is_requisition_count_query
+            and
+            not requisition_to_use
+        ):
+
+            print(
+                "\nREQUISITION COUNT QUERY DETECTED:"
+            )
+
+            print(
+                question_for_extraction
+            )
+
+            # ====================================================
+            # CASE 1: MULTIPLE TITLE MATCHES
+            # ====================================================
+
+            if title_status == "MULTIPLE":
+
+                matches = title_match.get(
+                    "matches",
+                    []
+                )
+
+                exact_title_matches = []
+
+                requested_title_normalized = re.sub(
+                    r"\s+",
+                    " ",
+                    str(
+                        requested_title
+                    ).strip()
+                ).lower()
+
+                if isinstance(
+                    matches,
+                    list
+                ):
+
+                    for match in matches:
+
+                        if not isinstance(
+                            match,
+                            dict
+                        ):
+
+                            continue
+
+                        matched_title = (
+                            match.get(
+                                "title"
+                            )
+                            or
+                            match.get(
+                                "matched_title"
+                            )
+                            or
+                            match.get(
+                                "Title"
+                            )
+                        )
+
+                        if not matched_title:
+
+                            continue
+
+                        matched_title_normalized = re.sub(
+                            r"\s+",
+                            " ",
+                            str(
+                                matched_title
+                            ).strip()
+                        ).lower()
+
+                        # ------------------------------------------------
+                        # EXACT TITLE ONLY
+                        # ------------------------------------------------
+
+                        if (
+                            matched_title_normalized
+                            ==
+                            requested_title_normalized
+                        ):
+
+                            exact_title_matches.append(
+                                match
+                            )
+
+                # ====================================================
+                # EXACT TITLE FOUND
+                # ====================================================
+
+                if exact_title_matches:
+
+                    canonical_title = (
+                        exact_title_matches[0].get(
+                            "title"
+                        )
+                        or
+                        exact_title_matches[0].get(
+                            "matched_title"
+                        )
+                        or
+                        exact_title_matches[0].get(
+                            "Title"
+                        )
+                    )
+
+                    canonical_title = str(
+                        canonical_title
+                    ).strip()
+
+                    print(
+                        "\nEXACT TITLE MATCHES FOR "
+                        "REQUISITION COUNT:"
+                    )
+
+                    for match in exact_title_matches:
+
+                        print(
+                            json.dumps(
+                                match,
+                                indent=4,
+                                default=str
+                            )
+                        )
+
+                    print(
+                        "\nCANONICAL TITLE:"
+                    )
+
+                    print(
+                        canonical_title
+                    )
+
+                    # ------------------------------------------------
+                    # Replace only the title in the original question.
+                    #
+                    # IMPORTANT:
+                    # Do NOT add:
+                    #
+                    # Use Requisition Number 102...
+                    #
+                    # because this query must count ALL requisitions.
+                    # ------------------------------------------------
+
+                    if (
+                        requested_title
+                        and
+                        canonical_title
+                        and
+                        requested_title.lower()
+                        !=
+                        canonical_title.lower()
+                    ):
+
+                        question = re.sub(
+                            re.escape(
+                                requested_title
+                            ),
+                            canonical_title,
+                            question,
+                            count=1,
+                            flags=re.IGNORECASE
+                        )
+
+                    print(
+                        "\nFINAL AGGREGATE QUESTION SENT TO executeSql:"
+                    )
+
+                    print(
+                        question
+                    )
+
+                    response = executeSql(
+                        question,
+                        master_df,
+                        work_experience_df
+                    )
+
+                    print(
+                        "\nGET HR OUTPUT END"
+                    )
+
+                    return response
+
+            # ====================================================
+            # CASE 2: EXACT TITLE MATCH
+            #
+            # There is only one title/requisition in the data.
+            #
+            # Still do NOT append a requisition filter because
+            # the user asked for a COUNT of requisitions.
+            # ====================================================
+
+            if title_status == "EXACT":
+
+                matched_title = (
+                    title_match.get(
+                        "matched_title"
+                    )
+                )
+
+                if matched_title:
+
+                    matched_title = str(
+                        matched_title
+                    ).strip()
+
+                    if (
+                        requested_title
+                        and
+                        requested_title.lower()
+                        !=
+                        matched_title.lower()
+                    ):
+
+                        question = re.sub(
+                            re.escape(
+                                requested_title
+                            ),
+                            matched_title,
+                            question,
+                            count=1,
+                            flags=re.IGNORECASE
+                        )
+
+                    print(
+                        "\nEXACT TITLE COUNT QUERY:"
+                    )
+
+                    print(
+                        "Title:",
+                        matched_title
+                    )
+
+                    print(
+                        "\nFINAL AGGREGATE QUESTION SENT TO executeSql:"
+                    )
+
+                    print(
+                        question
+                    )
+
+                    response = executeSql(
+                        question,
+                        master_df,
+                        work_experience_df
+                    )
+
+                    print(
+                        "\nGET HR OUTPUT END"
+                    )
+
+                    return response
 
         # ====================================================
-        # 5B. SINGLE TITLE SUGGESTION
+        # 7B. SINGLE TITLE SUGGESTION
         # ====================================================
 
         if title_status == "SUGGEST":
@@ -706,7 +1579,6 @@ def getOutput(
             )
 
             return {
-
                 "status":
                     "WAITING_FOR_USER",
 
@@ -715,6 +1587,9 @@ def getOutput(
 
                 "requested_title":
                     requested_title,
+
+                "requested_requisition_number":
+                    requisition_to_use,
 
                 "suggested_title":
                     suggested_title,
@@ -733,7 +1608,7 @@ def getOutput(
             }
 
         # ====================================================
-        # 5C. MULTIPLE TITLE MATCHES
+        # 7C. MULTIPLE TITLE MATCHES
         # ====================================================
 
         if title_status == "MULTIPLE":
@@ -834,7 +1709,6 @@ def getOutput(
             if not valid_matches:
 
                 return {
-
                     "status":
                         "WAITING_FOR_USER",
 
@@ -881,7 +1755,6 @@ def getOutput(
             )
 
             return {
-
                 "status":
                     "WAITING_FOR_USER",
 
@@ -902,7 +1775,7 @@ def getOutput(
             }
 
         # ====================================================
-        # 5D. EXACT TITLE MATCH
+        # 7D. EXACT TITLE MATCH
         # ====================================================
 
         if title_status == "EXACT":
@@ -934,43 +1807,67 @@ def getOutput(
             )
 
             # ------------------------------------------------
-            # Replace title in question with canonical title
+            # Replace requested title with canonical title
             # ------------------------------------------------
 
             if (
                 matched_title
                 and
-                requested_title != matched_title
+                requested_title
+                and
+                requested_title.lower()
+                !=
+                str(
+                    matched_title
+                ).lower()
             ):
 
-                question = (
-                    question.replace(
-                        requested_title,
+                question = re.sub(
+                    re.escape(
+                        requested_title
+                    ),
+                    str(
                         matched_title
-                    )
+                    ),
+                    question,
+                    count=1,
+                    flags=re.IGNORECASE
                 )
 
             # ------------------------------------------------
-            # Restrict SQL to the resolved requisition.
-            #
-            # This is important because a title can belong to
-            # multiple requisitions.
+            # Restrict SQL to selected requisition
             # ------------------------------------------------
 
             if matched_requisition:
 
-                # We append a clarification to the question
-                # so SQL generation uses this requisition.
-                question = (
-                    f"{question}\n\n"
+                requisition_instruction = (
                     f"Use Requisition Number "
-                    f"{matched_requisition} for the resolved "
-                    f"job title."
+                    f"{matched_requisition} "
+                    f"for the resolved job title."
                 )
 
+                if (
+                    requisition_instruction.lower()
+                    not in
+                    question.lower()
+                ):
+
+                    question = (
+                        f"{question}\n\n"
+                        f"{requisition_instruction}"
+                    )
+
     # ========================================================
-    # 6. NORMAL HR Q&A
+    # 8. ONLY NOW CALL SQL
     # ========================================================
+
+    print(
+        "\nFINAL QUESTION SENT TO executeSql:"
+    )
+
+    print(
+        question
+    )
 
     response = executeSql(
         question,
