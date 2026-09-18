@@ -2276,43 +2276,151 @@ def scheduling_flow(
     # DATE/TIME VALIDATION
     # ========================================================
 
+# --------------------------------------------------------
+# CASE 1:
+# Neither start time nor end time is available
+# --------------------------------------------------------
+
+
     if (
-        not start_datetime
-        or
-        not end_datetime
-    ):
+    not start_datetime
+    and
+    not end_datetime):
+        
+        return {
+        "waiting_for_user":
+            True,
+
+        "missing_information":
+            [
+                "start_datetime",
+                "end_datetime"
+            ],
+
+        "candidate_name":
+            candidate_name,
+
+        "requisition_number":
+            requisition_number,
+
+        "title_name":
+            title_name,
+
+        "interviewer_names":
+            interviewer_names,
+
+        "subject":
+            subject,
+
+        "result_summary":
+            "Please provide the interview date and time.",
+
+        "final_response":
+            "Please provide the interview date and time."
+    }
+ # --------------------------------------------------------
+# CASE 2:
+# Start time exists, but end time is missing
+# -------------------------------------------------------
+    if (
+    start_datetime
+    and
+    not end_datetime):
 
         return {
-            "waiting_for_user":
-                True,
+        "waiting_for_user":
+            True,
 
-            "missing_information":
-                [
-                    "start_datetime",
-                    "end_datetime"
-                ],
+        "missing_information":
+            [
+                "end_datetime"
+            ],
 
-            "candidate_name":
-                candidate_name,
+        "candidate_name":
+            candidate_name,
 
-            "requisition_number":
-                requisition_number,
+        "requisition_number":
+            requisition_number,
 
-            "title_name":
-                title_name,
+        "title_name":
+            title_name,
 
-            "interviewer_names":
-                interviewer_names,
+        "interviewer_names":
+            interviewer_names,
 
-            "subject":
-                subject,
+        "start_datetime":
+            start_datetime,
 
-            "result_summary":
-                "Please provide the interview date and time.",
+        "end_datetime":
+            None,
 
-            "final_response":
-                "Please provide the interview date and time."
-        }
+        "subject":
+            subject,
+
+        "result_summary":
+            (
+                "The interview start time is "
+                f"{start_datetime}. "
+                "Please provide the interview end time."
+            ),
+
+        "final_response":
+            (
+                "The interview starts time is "
+                f"{start_datetime}. "
+                "Please provide the interview end time."
+            )
+    }
+# --------------------------------------------------------
+# CASE 3:
+# End exists but start is missing
+#
+# This is an unusual case, but handle it safely.
+# --------------------------------------------------------
+    if (
+    not start_datetime
+    and
+    end_datetime):
+
+        return {
+        "waiting_for_user":
+            True,
+
+        "missing_information":
+            [
+                "start_datetime"
+            ],
+
+        "candidate_name":
+            candidate_name,
+
+        "requisition_number":
+            requisition_number,
+
+        "title_name":
+            title_name,
+
+        "interviewer_names":
+            interviewer_names,
+
+        "start_datetime":
+            None,
+
+        "end_datetime":
+            end_datetime,
+
+        "subject":
+            subject,
+
+        "result_summary":
+            "Please provide the interview start time.",
+
+        "final_response":
+            "Please provide the interview start time."
+    }
+
+
+
 
     # ========================================================
     # VALIDATE FUTURE DATE/TIME
@@ -11913,6 +12021,1319 @@ def interview_questions(
         "final_response":
             interview_questions_result
     }
+
+def marketing_intelligence_hr(
+    state: TaskState
+):
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "START MARKETING INTELLIGENCE HR FLOW"
+    )
+
+    print(
+        "========================================"
+    )
+
+    # ========================================================
+    # 1. GET REQUIRED VALUES FROM STATE
+    # ========================================================
+
+    requisition_number = state.get(
+        "requisition_number"
+    )
+
+    title_name = normalize_list(
+        state.get(
+            "title_name",
+            []
+        )
+    )
+
+    # --------------------------------------------------------
+    # JOB_REQUISITIONS expects one title string
+    # --------------------------------------------------------
+
+    title_query = (
+        title_name[0]
+        if title_name
+        else None
+    )
+
+    print(
+        "\nINPUT VALUES:"
+    )
+
+    print(
+        "Requisition Number:",
+        requisition_number
+    )
+
+    print(
+        "Title Name:",
+        title_name
+    )
+
+    print(
+        "Title Query:",
+        title_query
+    )
+
+    # ========================================================
+    # 2. TITLE PROVIDED
+    #
+    # If requisition number is not available but title is
+    # provided, first find the requisition number using
+    # JOB_REQUISITIONS.
+    # ========================================================
+
+    if (
+        not requisition_number
+        and title_query
+    ):
+
+        print(
+            "\n========================================"
+        )
+
+        print(
+            "TITLE PROVIDED"
+        )
+
+        print(
+            "Calling JOB_REQUISITIONS..."
+        )
+
+        print(
+            "========================================"
+        )
+
+        # ====================================================
+        # 3. BUILD JOB_REQUISITIONS PARAMETERS
+        # ====================================================
+
+        title_parameters = {
+
+            "UserInput":
+                title_query
+        }
+
+        print(
+            "\nJOB_REQUISITIONS PARAMETERS:"
+        )
+
+        print(
+            json.dumps(
+                title_parameters,
+                indent=4,
+                default=str
+            )
+        )
+
+        # ====================================================
+        # 4. BUILD JOB_REQUISITIONS BODY
+        # ====================================================
+
+        title_body = build_agent_body(
+            "JOB_REQUISITIONS",
+            title_parameters
+        )
+
+        print(
+            "\nJOB_REQUISITIONS BODY:"
+        )
+
+        print(
+            json.dumps(
+                title_body,
+                indent=4,
+                default=str
+            )
+        )
+
+        # ====================================================
+        # 5. CALL JOB_REQUISITIONS
+        # ====================================================
+
+        try:
+
+            title_result = call_agent(
+                "JOB_REQUISITIONS",
+                title_body
+            )
+
+        except Exception as e:
+
+            print(
+                "\nJOB_REQUISITIONS ERROR:"
+            )
+
+            print(
+                str(e)
+            )
+
+            return {
+
+                "waiting_for_user":
+                    False,
+
+                "title_name":
+                    title_name,
+
+                "requisition_number":
+                    None,
+
+                "marketing_intelligence_result":
+                    None,
+
+                "result_summary":
+                    (
+                        "Job requisition lookup failed: "
+                        f"{str(e)}"
+                    ),
+
+                "final_response":
+                    (
+                        "Job requisition lookup failed: "
+                        f"{str(e)}"
+                    )
+            }
+
+        # ====================================================
+        # 6. PRINT JOB REQUISITIONS RESULT
+        # ====================================================
+
+        print_agent_result(
+            "JOB_REQUISITIONS",
+            title_result
+        )
+
+        # ====================================================
+        # 7. RESOLVE TITLE
+        # ====================================================
+
+        title_match = resolve_title(
+            title_result,
+            title_query
+        )
+
+        print(
+            "\nTITLE RESOLUTION:"
+        )
+
+        print(
+            json.dumps(
+                title_match,
+                indent=4,
+                default=str
+            )
+        )
+
+        # ====================================================
+        # 8. TITLE NOT FOUND
+        # ====================================================
+
+        if not title_match:
+
+            return {
+
+                "waiting_for_user":
+                    True,
+
+                "awaiting_confirmation":
+                    False,
+
+                "confirmation_type":
+                    "title",
+
+                "original_title_input":
+                    title_name,
+
+                "title_name":
+                    title_name,
+
+                "requisition_number":
+                    None,
+
+                "marketing_intelligence_result":
+                    None,
+
+                "result_summary":
+                    (
+                        f"I could not find a job requisition "
+                        f"matching '{title_query}'. "
+                        "Please provide another job title."
+                    ),
+
+                "final_response":
+                    (
+                        f"I could not find a job requisition "
+                        f"matching '{title_query}'. "
+                        "Please provide another job title."
+                    )
+            }
+
+        # ====================================================
+        # 9. GET TITLE STATUS
+        # ====================================================
+
+        title_status = title_match.get(
+            "status"
+        )
+
+        print(
+            "\nTITLE STATUS:"
+        )
+
+        print(
+            title_status
+        )
+
+        # ====================================================
+        # 10. TITLE SUGGESTION
+        #
+        # Example:
+        #
+        # Site Enginner
+        #
+        #      ↓
+        #
+        # Site Engineer
+        # ====================================================
+
+        if title_status == "SUGGEST":
+
+            suggested_titles = []
+
+            # ------------------------------------------------
+            # suggested_titles
+            # ------------------------------------------------
+
+            raw_suggestions = title_match.get(
+                "suggested_titles",
+                []
+            )
+
+            if isinstance(
+                raw_suggestions,
+                list
+            ):
+
+                for suggestion in raw_suggestions:
+
+                    if isinstance(
+                        suggestion,
+                        str
+                    ):
+
+                        value = suggestion.strip()
+
+                    elif isinstance(
+                        suggestion,
+                        dict
+                    ):
+
+                        value = (
+                            suggestion.get(
+                                "title"
+                            )
+                            or
+                            suggestion.get(
+                                "Title"
+                            )
+                            or
+                            suggestion.get(
+                                "matched_title"
+                            )
+                            or
+                            suggestion.get(
+                                "suggested_title"
+                            )
+                        )
+
+                        if value:
+
+                            value = str(
+                                value
+                            ).strip()
+
+                    else:
+
+                        value = None
+
+                    if (
+                        value
+                        and
+                        value not in suggested_titles
+                    ):
+
+                        suggested_titles.append(
+                            value
+                        )
+
+            # ------------------------------------------------
+            # suggested_title fallback
+            # ------------------------------------------------
+
+            suggested_title = title_match.get(
+                "suggested_title"
+            )
+
+            if suggested_title:
+
+                suggested_title = str(
+                    suggested_title
+                ).strip()
+
+                if (
+                    suggested_title
+                    and
+                    suggested_title not in suggested_titles
+                ):
+
+                    suggested_titles.append(
+                        suggested_title
+                    )
+
+            # ------------------------------------------------
+            # suggestions fallback
+            # ------------------------------------------------
+
+            suggestions = title_match.get(
+                "suggestions",
+                []
+            )
+
+            if isinstance(
+                suggestions,
+                list
+            ):
+
+                for suggestion in suggestions:
+
+                    if isinstance(
+                        suggestion,
+                        str
+                    ):
+
+                        value = suggestion.strip()
+
+                    elif isinstance(
+                        suggestion,
+                        dict
+                    ):
+
+                        value = (
+                            suggestion.get(
+                                "title"
+                            )
+                            or
+                            suggestion.get(
+                                "Title"
+                            )
+                            or
+                            suggestion.get(
+                                "matched_title"
+                            )
+                            or
+                            suggestion.get(
+                                "suggested_title"
+                            )
+                        )
+
+                        if value:
+
+                            value = str(
+                                value
+                            ).strip()
+
+                    else:
+
+                        value = None
+
+                    if (
+                        value
+                        and
+                        value not in suggested_titles
+                    ):
+
+                        suggested_titles.append(
+                            value
+                        )
+
+            # ------------------------------------------------
+            # No suggestions found
+            # ------------------------------------------------
+
+            if not suggested_titles:
+
+                return {
+
+                    "waiting_for_user":
+                        True,
+
+                    "awaiting_confirmation":
+                        False,
+
+                    "confirmation_type":
+                        "title",
+
+                    "original_title_input":
+                        title_name,
+
+                    "title_name":
+                        title_name,
+
+                    "requisition_number":
+                        None,
+
+                    "marketing_intelligence_result":
+                        None,
+
+                    "result_summary":
+                        (
+                            f"I could not resolve the job title "
+                            f"'{title_query}'. "
+                            "Please provide another job title."
+                        ),
+
+                    "final_response":
+                        (
+                            f"I could not resolve the job title "
+                            f"'{title_query}'. "
+                            "Please provide another job title."
+                        )
+                }
+
+            # ------------------------------------------------
+            # Single suggestion
+            # ------------------------------------------------
+
+            if len(
+                suggested_titles
+            ) == 1:
+
+                suggested_title = (
+                    suggested_titles[0]
+                )
+
+                suggested_requisition_number = (
+                    title_match.get(
+                        "requisition_number"
+                    )
+                )
+
+                return {
+
+                    "waiting_for_user":
+                        True,
+
+                    "awaiting_confirmation":
+                        True,
+
+                    "confirmation_type":
+                        "title",
+
+                    "original_title_input":
+                        title_name,
+
+                    "suggested_title":
+                        suggested_title,
+
+                    "suggested_titles":
+                        suggested_titles,
+
+                    "suggested_requisition_number":
+                        suggested_requisition_number,
+
+                    "title_name":
+                        title_name,
+
+                    "requisition_number":
+                        None,
+
+                    "marketing_intelligence_result":
+                        None,
+
+                    "result_summary":
+                        (
+                            f"I couldn't find an exact match "
+                            f"for '{title_query}'. "
+                            f"Did you mean "
+                            f"'{suggested_title}'?"
+                        ),
+
+                    "final_response":
+                        (
+                            f"I couldn't find an exact match "
+                            f"for '{title_query}'. "
+                            f"Did you mean "
+                            f"'{suggested_title}'?"
+                        )
+                }
+
+            # ------------------------------------------------
+            # Multiple suggestions
+            # ------------------------------------------------
+
+            options_text = "\n".join(
+
+                f"{index + 1}. {title}"
+
+                for index, title
+                in enumerate(
+                    suggested_titles
+                )
+            )
+
+            return {
+
+                "waiting_for_user":
+                    True,
+
+                "awaiting_confirmation":
+                    True,
+
+                "confirmation_type":
+                    "title_multiple",
+
+                "original_title_input":
+                    title_name,
+
+                "requested_title":
+                    title_query,
+
+                "suggested_titles":
+                    suggested_titles,
+
+                "title_name":
+                    title_name,
+
+                "requisition_number":
+                    None,
+
+                "marketing_intelligence_result":
+                    None,
+
+                "result_summary":
+                    (
+                        f"I found multiple job titles "
+                        f"matching '{title_query}'. "
+                        f"Please select one:\n\n"
+                        f"{options_text}"
+                    ),
+
+                "final_response":
+                    (
+                        f"I found multiple job titles "
+                        f"matching '{title_query}'. "
+                        f"Please select one:\n\n"
+                        f"{options_text}"
+                    )
+            }
+
+        # ====================================================
+        # 11. MULTIPLE TITLE MATCH
+        #
+        # Example:
+        #
+        # Site Engineer
+        #
+        # 1. Site Engineer (Requisition 21)
+        # 2. Site Engineer (Requisition 102)
+        # 3. Site Engineer (Trainee) (Requisition 44)
+        # 4. Senior Site Engineer (Requisition 94)
+        #
+        # DO NOT AUTOMATICALLY SELECT ONE.
+        # ====================================================
+
+        if title_status == "MULTIPLE":
+
+            matches = title_match.get(
+                "matches",
+                []
+            )
+
+            valid_matches = []
+
+            # ------------------------------------------------
+            # Extract valid title matches
+            # ------------------------------------------------
+
+            if isinstance(
+                matches,
+                list
+            ):
+
+                for match in matches:
+
+                    if not isinstance(
+                        match,
+                        dict
+                    ):
+
+                        continue
+
+                    matched_title = (
+                        match.get(
+                            "title"
+                        )
+                        or
+                        match.get(
+                            "Title"
+                        )
+                        or
+                        match.get(
+                            "matched_title"
+                        )
+                    )
+
+                    requisition_number_match = (
+                        match.get(
+                            "requisition_number"
+                        )
+                        or
+                        match.get(
+                            "RequisitionNumber"
+                        )
+                    )
+
+                    if not matched_title:
+
+                        continue
+
+                    matched_title = str(
+                        matched_title
+                    ).strip()
+
+                    if (
+                        requisition_number_match
+                        is not None
+                    ):
+
+                        requisition_number_match = str(
+                            requisition_number_match
+                        ).strip()
+
+                    valid_matches.append(
+                        {
+
+                            "title":
+                                matched_title,
+
+                            "requisition_number":
+                                requisition_number_match,
+
+                            "score":
+                                match.get(
+                                    "score",
+                                    0.0
+                                ),
+
+                            "match_type":
+                                match.get(
+                                    "match_type"
+                                ),
+
+                            "requisition":
+                                match.get(
+                                    "requisition"
+                                )
+                        }
+                    )
+
+            # ------------------------------------------------
+            # No valid matches
+            # ------------------------------------------------
+
+            if not valid_matches:
+
+                return {
+
+                    "waiting_for_user":
+                        True,
+
+                    "awaiting_confirmation":
+                        False,
+
+                    "confirmation_type":
+                        "title",
+
+                    "original_title_input":
+                        title_name,
+
+                    "title_name":
+                        title_name,
+
+                    "requisition_number":
+                        None,
+
+                    "marketing_intelligence_result":
+                        None,
+
+                    "result_summary":
+                        (
+                            f"I could not resolve the job title "
+                            f"'{title_query}'. "
+                            "Please provide another job title."
+                        ),
+
+                    "final_response":
+                        (
+                            f"I could not resolve the job title "
+                            f"'{title_query}'. "
+                            "Please provide another job title."
+                        )
+                }
+
+            # ------------------------------------------------
+            # Build options
+            # ------------------------------------------------
+
+            options = []
+
+            for index, match in enumerate(
+                valid_matches,
+                start=1
+            ):
+
+                matched_title = match.get(
+                    "title"
+                )
+
+                requisition_number_match = (
+                    match.get(
+                        "requisition_number"
+                    )
+                )
+
+                if requisition_number_match:
+
+                    option_text = (
+                        f"{index}. "
+                        f"{matched_title} "
+                        f"(Requisition "
+                        f"{requisition_number_match})"
+                    )
+
+                else:
+
+                    option_text = (
+                        f"{index}. "
+                        f"{matched_title}"
+                    )
+
+                options.append(
+                    option_text
+                )
+
+            options_text = "\n".join(
+                options
+            )
+
+            print(
+                "\nMULTIPLE TITLE OPTIONS:"
+            )
+
+            print(
+                options_text
+            )
+
+            # ------------------------------------------------
+            # WAIT FOR USER
+            #
+            # Save title_matches.
+            #
+            # conversation.py can use this to resolve:
+            #
+            # 1
+            # 2
+            # 44
+            # 102
+            # etc.
+            # ------------------------------------------------
+
+            return {
+
+                "waiting_for_user":
+                    True,
+
+                "awaiting_confirmation":
+                    True,
+
+                "confirmation_type":
+                    "title_multiple",
+
+                "original_title_input":
+                    title_name,
+
+                "requested_title":
+                    title_query,
+
+                "title_matches":
+                    valid_matches,
+
+                "suggested_titles":
+                    [
+                        match.get(
+                            "title"
+                        )
+                        for match
+                        in valid_matches
+                    ],
+
+                "title_name":
+                    title_name,
+
+                "requisition_number":
+                    None,
+
+                "marketing_intelligence_result":
+                    None,
+
+                "result_summary":
+                    (
+                        f"I found multiple job titles "
+                        f"matching '{title_query}'. "
+                        f"Please select one:\n\n"
+                        f"{options_text}\n\n"
+                        "You can reply with the option number "
+                        "or the requisition number."
+                    ),
+
+                "final_response":
+                    (
+                        f"I found multiple job titles "
+                        f"matching '{title_query}'. "
+                        f"Please select one:\n\n"
+                        f"{options_text}\n\n"
+                        "You can reply with the option number "
+                        "or the requisition number."
+                    )
+            }
+
+        # ====================================================
+        # 12. EXACT TITLE MATCH
+        # ====================================================
+
+        if title_status == "EXACT":
+
+            matched_title = title_match.get(
+                "matched_title"
+            )
+
+            requisition_number = (
+                title_match.get(
+                    "requisition_number"
+                )
+            )
+
+            print(
+                "\nEXACT TITLE MATCH"
+            )
+
+            print(
+                "Matched Title:",
+                matched_title
+            )
+
+            print(
+                "Requisition Number:",
+                requisition_number
+            )
+
+            # ------------------------------------------------
+            # Requisition number missing
+            # ------------------------------------------------
+
+            if not requisition_number:
+
+                return {
+
+                    "waiting_for_user":
+                        True,
+
+                    "awaiting_confirmation":
+                        False,
+
+                    "title_name":
+                        (
+                            [matched_title]
+                            if matched_title
+                            else title_name
+                        ),
+
+                    "requisition_number":
+                        None,
+
+                    "marketing_intelligence_result":
+                        None,
+
+                    "result_summary":
+                        (
+                            f"The job title "
+                            f"'{matched_title or title_query}' "
+                            "was found, but its requisition "
+                            "number could not be determined."
+                        ),
+
+                    "final_response":
+                        (
+                            f"The job title "
+                            f"'{matched_title or title_query}' "
+                            "was found, but its requisition "
+                            "number could not be determined."
+                        )
+                }
+
+            # ------------------------------------------------
+            # Store canonical title
+            # ------------------------------------------------
+
+            if matched_title:
+
+                title_name = [
+
+                    str(
+                        matched_title
+                    ).strip()
+
+                ]
+
+            print(
+                "\nTITLE MATCHED:"
+            )
+
+            print(
+                "Requested:",
+                title_query
+            )
+
+            print(
+                "Matched:",
+                title_name
+            )
+
+            print(
+                "Requisition Number:",
+                requisition_number
+            )
+
+        # ====================================================
+        # 13. UNKNOWN STATUS
+        # ====================================================
+
+        elif title_status not in (
+            "EXACT",
+            "SUGGEST",
+            "MULTIPLE"
+        ):
+
+            return {
+
+                "waiting_for_user":
+                    True,
+
+                "title_name":
+                    title_name,
+
+                "requisition_number":
+                    None,
+
+                "marketing_intelligence_result":
+                    None,
+
+                "result_summary":
+                    (
+                        f"I could not resolve the job title "
+                        f"'{title_query}'. "
+                        "Please provide another job title."
+                    ),
+
+                "final_response":
+                    (
+                        f"I could not resolve the job title "
+                        f"'{title_query}'. "
+                        "Please provide another job title."
+                    )
+            }
+
+    # ========================================================
+    # 14. NO TITLE AND NO REQUISITION
+    # ========================================================
+
+    if (
+        not requisition_number
+        and
+        not title_query
+    ):
+
+        return {
+
+            "waiting_for_user":
+                True,
+
+            "missing_information":
+                [
+                    "requisition_number_or_title"
+                ],
+
+            "title_name":
+                title_name,
+
+            "requisition_number":
+                None,
+
+            "marketing_intelligence_result":
+                None,
+
+            "result_summary":
+                (
+                    "Please provide either the "
+                    "requisition number or the job title."
+                ),
+
+            "final_response":
+                (
+                    "Please provide either the "
+                    "requisition number or the job title."
+                )
+        }
+
+    # ========================================================
+    # 15. DIRECT REQUISITION NUMBER
+    #
+    # If the user already provided a requisition number,
+    # do NOT call JOB_REQUISITIONS.
+    # ========================================================
+
+    if requisition_number:
+
+        print(
+            "\nREQUISITION NUMBER PROVIDED DIRECTLY:"
+        )
+
+        print(
+            requisition_number
+        )
+
+    # ========================================================
+    # 16. SAFETY CHECK
+    # ========================================================
+
+    if not requisition_number:
+
+        return {
+
+            "waiting_for_user":
+                True,
+
+            "missing_information":
+                [
+                    "requisition_number"
+                ],
+
+            "title_name":
+                title_name,
+
+            "requisition_number":
+                None,
+
+            "marketing_intelligence_result":
+                None,
+
+            "result_summary":
+                (
+                    "I could not determine the requisition "
+                    "number. Please provide a requisition "
+                    "number or job title."
+                ),
+
+            "final_response":
+                (
+                    "I could not determine the requisition "
+                    "number. Please provide a requisition "
+                    "number or job title."
+                )
+        }
+
+    # ========================================================
+    # 17. CALL MARKETINGINTELLIGENCEHR
+    # ========================================================
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "CALLING MARKETINGINTELLIGENCEHR"
+    )
+
+    print(
+        "========================================"
+    )
+
+    marketing_intelligence_parameters = {
+
+        "AgentName":
+            "Marketing_Intelligence_Hr",
+
+        "RequisitionNumber":
+            str(
+                requisition_number
+            )
+    }
+
+    print(
+        "\nMARKETING INTELLIGENCE PARAMETERS:"
+    )
+
+    print(
+        json.dumps(
+            marketing_intelligence_parameters,
+            indent=4,
+            default=str
+        )
+    )
+
+    # ========================================================
+    # 18. BUILD MARKETINGINTELLIGENCEHR BODY
+    # ========================================================
+
+    marketing_intelligence_body = build_agent_body(
+
+        "MARKETINGINTELLIGENCEHR",
+
+        marketing_intelligence_parameters
+
+    )
+
+    print(
+        "\nMARKETINGINTELLIGENCEHR BODY:"
+    )
+
+    print(
+        json.dumps(
+            marketing_intelligence_body,
+            indent=4,
+            default=str
+        )
+    )
+
+    # ========================================================
+    # 19. CALL MARKETINGINTELLIGENCEHR
+    # ========================================================
+
+    try:
+
+        marketing_intelligence_result = call_agent(
+
+            "MARKETINGINTELLIGENCEHR",
+
+            marketing_intelligence_body
+
+        )
+
+    except Exception as e:
+
+        print(
+            "\nMARKETINGINTELLIGENCEHR ERROR:"
+        )
+
+        print(
+            str(e)
+        )
+
+        return {
+
+            "waiting_for_user":
+                False,
+
+            "requisition_number":
+                requisition_number,
+
+            "title_name":
+                title_name,
+
+            "marketing_intelligence_result":
+                None,
+
+            "result_summary":
+                (
+                    "Failed to generate "
+                    "marketing intelligence: "
+                    f"{str(e)}"
+                ),
+
+            "final_response":
+                (
+                    "Failed to generate "
+                    "marketing intelligence: "
+                    f"{str(e)}"
+                )
+        }
+
+    # ========================================================
+    # 20. PRINT RESULT
+    # ========================================================
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "MARKETINGINTELLIGENCEHR RESULT"
+    )
+
+    print(
+        "========================================"
+    )
+
+    print(
+        json.dumps(
+            marketing_intelligence_result,
+            indent=4,
+            default=str
+        )
+    )
+
+    # ========================================================
+    # 21. RETURN FINAL RESULT
+    # ========================================================
+
+    return {
+
+        "marketing_intelligence_result":
+            marketing_intelligence_result,
+
+        "requisition_number":
+            requisition_number,
+
+        "title_name":
+            title_name,
+
+        "waiting_for_user":
+            False,
+
+        "awaiting_confirmation":
+            False,
+
+        "confirmation_type":
+            None,
+
+        "result_summary":
+            marketing_intelligence_result.get(
+                "output",
+                ""
+            ),
+
+        "final_response":
+            marketing_intelligence_result
+    }
+
 # ============================================================
 # MAIN ORCHESTRATOR
 # ============================================================
@@ -11976,6 +13397,11 @@ def orchestrate(
         return interview_questions(
             state
         )
+
+    elif task_type == "MARKETINGINTELLIGENCEHR":
+            return marketing_intelligence_hr(
+                state
+            )
 
     elif task_type == "LINKEDIN_JOB_DESC":
 
