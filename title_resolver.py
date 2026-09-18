@@ -787,7 +787,162 @@ def sort_title_matches(
 
         reverse=True
     )
+# ============================================================
+# STRONG MULTI-WORD TITLE MATCH
+# ============================================================
 
+def strong_multiword_title_match(
+    requested_title: str,
+    actual_title: str
+) -> bool:
+    """
+    Decide whether a multi-word requested title is meaningfully
+    related to the actual title.
+
+    This prevents generic single-word matches.
+
+    Example:
+
+        requested:
+            site engineer
+
+        allowed:
+
+            Site Engineer
+            Senior Site Engineer
+            Site Engineer (Trainee)
+
+        rejected:
+
+            Marine Engineer
+            Quality Engineer
+            Project Engineer
+
+    For multi-word requests, the important words must match
+    strongly. A title should not qualify merely because one
+    generic word such as "engineer" matches.
+
+    For one-word requests, this function returns True and lets
+    the normal fuzzy logic decide the result.
+    """
+
+    requested_tokens = get_title_tokens(
+        requested_title
+    )
+
+    actual_tokens = get_title_tokens(
+        actual_title
+    )
+
+    if (
+        not requested_tokens
+        or
+        not actual_tokens
+    ):
+        return False
+
+    # --------------------------------------------------------
+    # One-word request
+    #
+    # Example:
+    #
+    # hcm
+    #
+    # Let the normal fuzzy logic handle it.
+    # --------------------------------------------------------
+
+    if len(requested_tokens) == 1:
+        return True
+
+    # --------------------------------------------------------
+    # Exact consecutive phrase
+    #
+    # Examples:
+    #
+    # site engineer
+    # -> site engineer
+    #
+    # site engineer
+    # -> senior site engineer
+    #
+    # site engineer
+    # -> site engineer trainee
+    # --------------------------------------------------------
+
+    if partial_title_match(
+        requested_title,
+        actual_title
+    ):
+        return True
+
+    # --------------------------------------------------------
+    # Every requested token must have a strong match somewhere
+    # in the actual title.
+    #
+    # This handles:
+    #
+    # site enginner
+    # -> site engineer
+    #
+    # site engine
+    # -> site engineer
+    # --------------------------------------------------------
+
+    strong_token_matches = 0
+
+    for requested_token in requested_tokens:
+
+        best_score = 0.0
+
+        for actual_token in actual_tokens:
+
+            # Exact token
+            if requested_token == actual_token:
+
+                score = 1.0
+
+            # Prefix relationship
+            elif (
+                actual_token.startswith(
+                    requested_token
+                )
+                or
+                requested_token.startswith(
+                    actual_token
+                )
+            ):
+
+                score = 0.95
+
+            # Normal fuzzy word similarity
+            else:
+
+                score = SequenceMatcher(
+                    None,
+                    requested_token,
+                    actual_token
+                ).ratio()
+
+            if score > best_score:
+                best_score = score
+
+        # ----------------------------------------------------
+        # Require a strong match for EACH requested word.
+        # ----------------------------------------------------
+
+        if best_score >= 0.80:
+
+            strong_token_matches += 1
+
+    # --------------------------------------------------------
+    # ALL requested words must match strongly.
+    # --------------------------------------------------------
+
+    return (
+        strong_token_matches
+        ==
+        len(requested_tokens)
+    )
 
 # ============================================================
 # FIND ALL EXACT TITLE MATCHES
@@ -853,6 +1008,8 @@ def find_exact_title_matches(
     )
 
 
+
+
 # ============================================================
 # FIND RELATED TITLE MATCHES
 # ============================================================
@@ -863,21 +1020,35 @@ def find_related_title_matches(
     threshold: float = 0.70
 ):
     """
-    Find related partial/fuzzy titles.
+    Find meaningful partial/fuzzy title matches.
 
-    Handles cases such as:
+    Important rule:
 
-        Site Engine
-        -> Site Engineer
+    For multi-word requests, a title cannot qualify merely
+    because one generic word matches.
 
-        Site Enginner
-        -> Site Engineer
+    Example:
 
-        Site Engineer
-        -> Site Engineer (Trainee)
+        requested:
+            site engineer
 
-        Site Engineer
-        -> Senior Site Engineer
+        allowed:
+
+            Site Engineer
+            Senior Site Engineer
+            Site Engineer (Trainee)
+
+        rejected:
+
+            Marine Engineer
+            Quality Engineer
+            Project Engineer
+
+    For one-word requests such as:
+
+        hcm
+
+    normal fuzzy matching is allowed.
     """
 
     requested_normalized = normalize_title(
@@ -885,6 +1056,10 @@ def find_related_title_matches(
     )
 
     matches = []
+
+    # ========================================================
+    # LOOP THROUGH ALL TITLES
+    # ========================================================
 
     for title in title_list:
 
@@ -905,9 +1080,9 @@ def find_related_title_matches(
             actual_title
         )
 
-        # ----------------------------------------------------
-        # Skip exact titles
-        # ----------------------------------------------------
+        # ====================================================
+        # SKIP EXACT MATCH
+        # ====================================================
 
         if (
             actual_normalized
@@ -916,65 +1091,9 @@ def find_related_title_matches(
         ):
             continue
 
-        # ----------------------------------------------------
-        # GENERAL FUZZY SCORE
-        # ----------------------------------------------------
-
-        fuzzy_score = title_similarity(
-            requested_title,
-            actual_title
-        )
-
-        # ----------------------------------------------------
-        # PARTIAL TOKEN SCORE
-        # ----------------------------------------------------
-
-        partial_score = partial_title_score(
-            requested_title,
-            actual_title
-        )
-
-        # ----------------------------------------------------
-        # TOKEN FUZZY SCORE
-        # ----------------------------------------------------
-
-        token_fuzzy_score = token_fuzzy_similarity(
-            requested_title,
-            actual_title
-        )
-
-        # ----------------------------------------------------
-        # PREFIX TOKEN SCORE
-        # ----------------------------------------------------
-
-        prefix_score = prefix_token_similarity(
-            requested_title,
-            actual_title
-        )
-
-        # ----------------------------------------------------
-        # STRONGEST SCORE
-        # ----------------------------------------------------
-
-        score = max(
-            fuzzy_score,
-            partial_score,
-            token_fuzzy_score,
-            prefix_score
-        )
-
-        # ----------------------------------------------------
-        # PARTIAL MATCH
-        # ----------------------------------------------------
-
-        is_partial_match = partial_title_match(
-            requested_title,
-            actual_title
-        )
-
-        # ----------------------------------------------------
-        # SHORT TITLE PREFIX CHECK
-        # ----------------------------------------------------
+        # ====================================================
+        # GET REQUESTED TOKENS
+        # ====================================================
 
         requested_tokens = get_title_tokens(
             requested_title
@@ -984,46 +1103,156 @@ def find_related_title_matches(
             actual_title
         )
 
+        if (
+            not requested_tokens
+            or
+            not actual_tokens
+        ):
+            continue
+
+        # ====================================================
+        # IMPORTANT MATCH GATE
+        #
+        # Multi-word title:
+        #
+        # Require meaningful relationship.
+        #
+        # This prevents:
+        #
+        # site engineer
+        #
+        # from matching:
+        #
+        # marine engineer
+        # quality engineer
+        # project engineer
+        # ====================================================
+
+        if len(requested_tokens) > 1:
+
+            meaningful_match = (
+                strong_multiword_title_match(
+                    requested_title,
+                    actual_title
+                )
+            )
+
+            if not meaningful_match:
+
+                continue
+
+        # ====================================================
+        # GENERAL FUZZY SCORE
+        # ====================================================
+
+        fuzzy_score = title_similarity(
+            requested_title,
+            actual_title
+        )
+
+        # ====================================================
+        # PARTIAL TOKEN SCORE
+        # ====================================================
+
+        partial_score = partial_title_score(
+            requested_title,
+            actual_title
+        )
+
+        # ====================================================
+        # TOKEN FUZZY SCORE
+        # ====================================================
+
+        token_fuzzy_score = token_fuzzy_similarity(
+            requested_title,
+            actual_title
+        )
+
+        # ====================================================
+        # PREFIX TOKEN SCORE
+        # ====================================================
+
+        prefix_score = prefix_token_similarity(
+            requested_title,
+            actual_title
+        )
+
+        # ====================================================
+        # STRONGEST SCORE
+        # ====================================================
+
+        score = max(
+            fuzzy_score,
+            partial_score,
+            token_fuzzy_score,
+            prefix_score
+        )
+
+        # ====================================================
+        # PARTIAL MATCH
+        # ====================================================
+
+        is_partial_match = partial_title_match(
+            requested_title,
+            actual_title
+        )
+
+        # ====================================================
+        # PREFIX TOKEN MATCH
+        # ====================================================
+
         prefix_token_match = False
 
-        if requested_tokens and actual_tokens:
+        if (
+            requested_tokens
+            and
+            actual_tokens
+            and
+            len(requested_tokens)
+            <=
+            len(actual_tokens)
+        ):
 
-            if len(requested_tokens) <= len(actual_tokens):
+            prefix_token_match = True
 
-                prefix_token_match = True
+            for index, requested_token in enumerate(
+                requested_tokens
+            ):
 
-                for index, requested_token in enumerate(
-                    requested_tokens
+                actual_token = actual_tokens[
+                    index
+                ]
+
+                if not (
+                    actual_token.startswith(
+                        requested_token
+                    )
+                    or
+                    requested_token.startswith(
+                        actual_token
+                    )
                 ):
 
-                    actual_token = actual_tokens[index]
+                    prefix_token_match = False
 
-                    if not (
-                        actual_token.startswith(
-                            requested_token
-                        )
-                        or
-                        requested_token.startswith(
-                            actual_token
-                        )
-                    ):
+                    break
 
-                        prefix_token_match = False
-                        break
-
-        # ----------------------------------------------------
+        # ====================================================
         # QUALIFIED MATCH
-        # ----------------------------------------------------
+        # ====================================================
 
         if (
             score >= threshold
-            or is_partial_match
-            or prefix_token_match
+            or
+            is_partial_match
+            or
+            prefix_token_match
         ):
 
             if (
                 is_partial_match
-                or prefix_token_match
+                or
+                prefix_token_match
             ):
 
                 match_type = "PARTIAL"
@@ -1041,10 +1270,13 @@ def find_related_title_matches(
                 )
             )
 
+    # ========================================================
+    # REMOVE DUPLICATES
+    # ========================================================
+
     return remove_duplicate_matches(
         matches
     )
-
 
 # ============================================================
 # FIND BEST TITLE
