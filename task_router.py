@@ -245,6 +245,10 @@ There are EXACTLY seven task types:
 
 7. INTERVIEW_QUESTION
 
+8. MARKETINGINTELLIGENCEHR
+
+
+
 
 ============================================================
 VERY IMPORTANT - MISSING INFORMATION
@@ -1199,6 +1203,301 @@ If neither requisition_number nor title_name is provided:
 
 
 ============================================================
+8. MARKETINGINTELLIGENCEHR
+============================================================
+
+Choose MARKETINGINTELLIGENCEHR when the user wants to:
+
+- get marketing intelligence for a job requisition
+- generate marketing intelligence for a job
+- get marketing insights for a job requisition
+- generate a marketing intelligence report for a requisition
+- get marketing intelligence for a job title
+- analyze a job requisition from a marketing perspective
+- get marketing information for a job opening
+- generate marketing intelligence for a position
+
+The request must be related to a job requisition or job
+position in the HR Recruitment system.
+
+Do NOT classify general marketing questions as
+MARKETINGINTELLIGENCEHR.
+
+For example:
+
+"What are the latest marketing trends?"
+
+is NOT:
+
+MARKETINGINTELLIGENCEHR
+
+
+============================================================
+MARKETINGINTELLIGENCEHR - IMPORTANT INTENT RULE
+============================================================
+
+If the user asks for MARKETING INTELLIGENCE for a job,
+position, requisition, or job opening, the task is:
+
+MARKETINGINTELLIGENCEHR
+
+Examples:
+
+"Give me marketing intelligence for requisition 4."
+
+"Generate marketing intelligence for requisition 44."
+
+"Get marketing intelligence for Site Engineer."
+
+"Give me marketing insights for the Site Engineer position."
+
+"Generate a marketing intelligence report for requisition 44."
+
+"Can you give me marketing intelligence for this job?"
+
+Do NOT classify these requests as:
+
+SCREENING
+
+LIST_INTERVIEWERS
+
+CHECK_AVAILABILITY
+
+SCHEDULE_INTERVIEW
+
+SEND_EMAIL
+
+INTERVIEW_QUESTION
+
+The intended action must be considered.
+
+
+============================================================
+MARKETINGINTELLIGENCEHR - REQUISITION NUMBER
+============================================================
+
+If the user explicitly provides a requisition number,
+extract it.
+
+Examples:
+
+"Give me marketing intelligence for requisition 4."
+
+Return:
+
+{{
+    "task_type": "MARKETINGINTELLIGENCEHR",
+    "requisition_number": "4"
+}}
+
+
+"Generate marketing intelligence for requisition number 44."
+
+Return:
+
+{{
+    "task_type": "MARKETINGINTELLIGENCEHR",
+    "requisition_number": "44"
+}}
+
+
+"Marketing intelligence for req 44."
+
+Return:
+
+{{
+    "task_type": "MARKETINGINTELLIGENCEHR",
+    "requisition_number": "44"
+}}
+
+
+Do NOT invent a requisition number.
+
+Do NOT convert a job title into a requisition number.
+
+Do NOT guess a requisition number.
+
+
+============================================================
+MARKETINGINTELLIGENCEHR - JOB TITLE
+============================================================
+
+If the user provides a job or position title instead of
+a requisition number, extract the title into title_name.
+
+Examples:
+
+"Give me marketing intelligence for Site Engineer."
+
+Return:
+
+{{
+    "task_type": "MARKETINGINTELLIGENCEHR",
+    "requisition_number": null,
+    "title_name": "Site Engineer"
+}}
+
+
+"Generate marketing intelligence for Senior Software Engineer."
+
+Return:
+
+{{
+    "task_type": "MARKETINGINTELLIGENCEHR",
+    "requisition_number": null,
+    "title_name": "Senior Software Engineer"
+}}
+
+
+"Give me marketing intelligence for site enginner."
+
+Return:
+
+{{
+    "task_type": "MARKETINGINTELLIGENCEHR",
+    "requisition_number": null,
+    "title_name": "site enginner"
+}}
+
+
+IMPORTANT:
+
+Extract the title exactly as supplied by the user.
+
+Do NOT:
+
+- correct spelling
+- normalize spelling
+- change capitalization
+- invent a different title
+
+
+============================================================
+MARKETINGINTELLIGENCEHR - BOTH REQUISITION NUMBER
+AND TITLE
+============================================================
+
+If the user provides both a requisition number and a title,
+return both values.
+
+Example:
+
+"Give me marketing intelligence for requisition 44,
+Site Engineer."
+
+Return:
+
+{{
+    "task_type": "MARKETINGINTELLIGENCEHR",
+    "requisition_number": "44",
+    "title_name": "Site Engineer"
+}}
+
+
+Do NOT remove either value.
+
+
+============================================================
+MARKETINGINTELLIGENCEHR - MISSING INFORMATION
+============================================================
+
+If the user asks for marketing intelligence but does not
+provide either a requisition number or a job title:
+
+Example:
+
+"Give me marketing intelligence."
+
+Return:
+
+{{
+    "task_type": "MARKETINGINTELLIGENCEHR",
+    "requisition_number": null,
+    "title_name": null
+}}
+
+Do NOT return task_type null.
+
+Do NOT ask the user a question.
+
+The orchestration layer will handle the missing information.
+
+
+============================================================
+MARKETINGINTELLIGENCEHR - TITLE BOUNDARY
+============================================================
+
+When extracting title_name, identify the complete job or
+position title.
+
+Examples:
+
+"marketing intelligence for Site Engineer"
+
+-> title_name = "Site Engineer"
+
+"marketing intelligence for the Site Engineer position"
+
+-> title_name = "Site Engineer"
+
+"marketing intelligence for Senior Software Engineer"
+
+-> title_name = "Senior Software Engineer"
+
+"marketing intelligence for Oracle HCM Consultant role"
+
+-> title_name = "Oracle HCM Consultant"
+
+Do NOT include grammatical connector words:
+
+- for
+- the
+- position
+- role
+- job
+- requisition
+
+unless they are genuinely part of the title.
+
+
+============================================================
+MARKETINGINTELLIGENCEHR - ORCHESTRATION FLOW
+============================================================
+
+If requisition_number is provided:
+
+    Use the provided requisition number.
+
+    Do NOT call JOBREQUISITIONS.
+
+    Continue directly to:
+
+    MARKETINGINTELLIGENCEHR
+
+
+If requisition_number is NOT provided but title_name
+is provided:
+
+    The orchestration layer will:
+
+        JOB_REQUISITIONS
+                ↓
+           resolve_title()
+                ↓
+        get RequisitionNumber
+                ↓
+        MARKETINGINTELLIGENCEHR
+
+
+If neither requisition_number nor title_name is provided:
+
+    Return both as null.
+
+    Do NOT ask the user a question.
+
+    The orchestration layer handles the missing information.    
+
+============================================================
 BUSINESS FLOW
 ============================================================
 
@@ -1458,6 +1757,50 @@ INTERVIEW_QUESTION
         ↓
 
 Generate interview questions
+
+------------------------------------------------------------
+MARKETING INTELLIGENCE HR
+------------------------------------------------------------
+
+MARKETINGINTELLIGENCEHR
+
+        ↓
+
+If requisition number exists
+
+        ↓
+
+MARKETINGINTELLIGENCEHR
+
+        ↓
+
+Marketing_Intelligence_Hr
+
+
+OR
+
+
+If only title exists
+
+        ↓
+
+JOB_REQUISITIONS
+
+        ↓
+
+resolve_title()
+
+        ↓
+
+RequisitionNumber
+
+        ↓
+
+MARKETINGINTELLIGENCEHR
+
+        ↓
+
+Marketing_Intelligence_Hr
 
 
 ============================================================
@@ -2090,6 +2433,7 @@ Rules:
    SEND_EMAIL
    LINKEDIN_JOB_DESC
    INTERVIEW_QUESTION
+   MARKETINGINTELLIGENCEHR
 
 2. Use null for missing scalar values.
 
@@ -2275,7 +2619,9 @@ Before returning the answer:
 
         "LINKEDIN_JOB_DESC",
 
-        "INTERVIEW_QUESTION"
+        "INTERVIEW_QUESTION",
+
+        "MARKETINGINTELLIGENCEHR"
     }
 
     task_type = (
@@ -2555,3 +2901,4 @@ Before returning the answer:
                 "job_description"
             )
     }
+
