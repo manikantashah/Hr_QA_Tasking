@@ -86,6 +86,46 @@ AGENTS = {
 
 
 
+    "MARKETINGINTELLIGENCEHR": {
+
+    "description": (
+        "Generates marketing intelligence for a job requisition."
+    ),
+
+    "parameters": {
+
+        "AgentName": "string",
+
+        "RequisitionNumber": "string",
+
+        "triggerType": "string"
+    },
+
+    "user_parameters": [
+        "AgentName",
+        "RequisitionNumber"
+    ],
+
+    "system_parameters": [
+        "triggerType"
+    ],
+
+    "body": {
+
+        "parameters": {
+
+            "AgentName":
+                "Marketing_Intelligence_Hr",
+
+            "RequisitionNumber":
+                None,
+
+            "triggerType":
+                "REST"
+        }
+    }
+},
+
     # ========================================================
     # 2. CANDIDATE REQUISITION
     # ========================================================
