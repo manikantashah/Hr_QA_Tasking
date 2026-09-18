@@ -180,6 +180,8 @@ class TaskState(TypedDict, total=False):
 
     interview_questions_result: Any
 
+    marketing_intelligence_result: Any
+
 
     # ========================================================
     # CONVERSATION / MISSING INFORMATION
