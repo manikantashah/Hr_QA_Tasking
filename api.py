@@ -4,6 +4,7 @@
 # ============================================================
 
 import json
+import re
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -142,6 +143,93 @@ def _ensure_dict(value):
 
 
 # ============================================================
+# QA WAITING STATE HELPER
+# ============================================================
+#
+# Convert:
+#
+#     message
+#
+# into:
+#
+#     result_summary
+#
+# for the QA state.
+#
+# IMPORTANT:
+#
+# We still preserve all fields required for continuation:
+#
+# requested_title
+# title_matches
+# requested_candidate
+# candidate_matches
+# confirmation_type
+# etc.
+#
+# ============================================================
+
+def _prepare_qa_waiting_state(
+    response
+):
+
+    response = _ensure_dict(
+        response
+    )
+
+    # --------------------------------------------------------
+    # If result_summary already exists, keep it.
+    # --------------------------------------------------------
+
+    result_summary = (
+        response.get(
+            "result_summary"
+        )
+    )
+
+    # --------------------------------------------------------
+    # If result_summary does not exist, use message.
+    # --------------------------------------------------------
+
+    if (
+        not result_summary
+        and
+        response.get(
+            "message"
+        )
+    ):
+
+        result_summary = (
+            response.get(
+                "message"
+            )
+        )
+
+    # --------------------------------------------------------
+    # Store result_summary.
+    # --------------------------------------------------------
+
+    if result_summary:
+
+        response[
+            "result_summary"
+        ] = result_summary
+
+    # --------------------------------------------------------
+    # Remove message from the STATE object.
+    #
+    # This is what you requested.
+    # --------------------------------------------------------
+
+    response.pop(
+        "message",
+        None
+    )
+
+    return response
+
+
+# ============================================================
 # HOME
 # ============================================================
 
@@ -190,6 +278,86 @@ def _save_qa_state(
         response
     )
 
+    # --------------------------------------------------------
+    # Determine confirmation type
+    # --------------------------------------------------------
+
+    confirmation_type = response.get(
+        "confirmation_type"
+    )
+
+    title_match = response.get(
+        "title_match"
+    )
+
+    candidate_match = response.get(
+        "candidate_match"
+    )
+
+    # --------------------------------------------------------
+    # Infer title confirmation type
+    # --------------------------------------------------------
+
+    if (
+        not confirmation_type
+        and
+        title_match == "SUGGEST"
+    ):
+
+        confirmation_type = "title"
+
+    elif (
+        not confirmation_type
+        and
+        title_match == "MULTIPLE"
+    ):
+
+        confirmation_type = "title_multiple"
+
+    # --------------------------------------------------------
+    # Infer candidate confirmation type
+    # --------------------------------------------------------
+
+    if (
+        not confirmation_type
+        and
+        candidate_match == "SUGGEST"
+    ):
+
+        confirmation_type = "candidate"
+
+    elif (
+        not confirmation_type
+        and
+        candidate_match == "MULTIPLE"
+    ):
+
+        confirmation_type = "candidate_multiple"
+
+    # ========================================================
+    # USER-FACING WAITING MESSAGE
+    # ========================================================
+    #
+    # Prefer result_summary.
+    #
+    # If the handler still returns message, convert it here.
+    #
+    # ========================================================
+
+    result_summary = (
+        response.get(
+            "result_summary"
+        )
+        or
+        response.get(
+            "message"
+        )
+    )
+
+    # --------------------------------------------------------
+    # Save complete QA continuation state
+    # --------------------------------------------------------
+
     CONVERSATIONS[
         conversation_id
     ] = {
@@ -202,6 +370,10 @@ def _save_qa_state(
                 "original_question"
             ),
 
+        # ====================================================
+        # CANDIDATE DATA
+        # ====================================================
+
         "requested_candidate":
             response.get(
                 "requested_candidate"
@@ -212,11 +384,77 @@ def _save_qa_state(
                 "suggested_candidate"
             ),
 
+        "candidate_match":
+            candidate_match,
+
+        "candidate_matches":
+            response.get(
+                "candidate_matches",
+                []
+            ),
+
         "awaiting_candidate":
             response.get(
                 "awaiting_candidate",
                 False
-            )
+            ),
+
+        # ====================================================
+        # TITLE DATA
+        # ====================================================
+
+        "requested_title":
+            response.get(
+                "requested_title"
+            ),
+
+        "suggested_title":
+            response.get(
+                "suggested_title"
+            ),
+
+        "suggested_requisition_number":
+            response.get(
+                "suggested_requisition_number"
+            ),
+
+        "suggested_title_display":
+            response.get(
+                "suggested_title_display"
+            ),
+
+        "title_match":
+            title_match,
+
+        "title_matches":
+            response.get(
+                "title_matches",
+                []
+            ),
+
+        # ====================================================
+        # CONVERSATION CHECKPOINT
+        # ====================================================
+
+        "confirmation_type":
+            confirmation_type,
+
+        "awaiting_title":
+            (
+                confirmation_type
+                in {
+                    "title",
+                    "title_multiple",
+                    "title_correction"
+                }
+            ),
+
+        # ====================================================
+        # USER-FACING RESPONSE
+        # ====================================================
+
+        "result_summary":
+            result_summary
     }
 
 
@@ -236,23 +474,6 @@ def _clear_conversation(
 
 # ============================================================
 # RESET TEMPORARY CONFIRMATION FLAGS
-# ============================================================
-#
-# IMPORTANT:
-#
-# We DO NOT clear confirmation_type here before
-# orchestrate() runs.
-#
-# scheduling_flow() needs confirmation_type to know
-# whether it should resume from a previous checkpoint.
-#
-# Example:
-#
-# confirmation_type = "availability_slot"
-#
-# must remain available while scheduling_flow()
-# executes its resume branch.
-#
 # ============================================================
 
 def _reset_confirmation_state(
@@ -304,6 +525,1009 @@ def _resume_qa(
         else {}
     )
 
+    normalized = (
+        str(question)
+        .strip()
+        .lower()
+    )
+
+    original_question = previous_state.get(
+        "original_question"
+    )
+
+    # ========================================================
+    # GET STORED CHECKPOINT
+    # ========================================================
+
+    confirmation_type = previous_state.get(
+        "confirmation_type"
+    )
+
+    # ========================================================
+    # TITLE SINGLE SUGGESTION
+    # ========================================================
+
+    if confirmation_type == "title":
+
+        requested_title = previous_state.get(
+            "requested_title"
+        )
+
+        suggested_title = previous_state.get(
+            "suggested_title"
+        )
+
+        suggested_requisition_number = (
+            previous_state.get(
+                "suggested_requisition_number"
+            )
+        )
+
+        # ====================================================
+        # YES
+        # ====================================================
+
+        if normalized in {
+            "yes",
+            "y",
+            "yeah",
+            "yep",
+            "yup",
+            "ok",
+            "okay",
+            "correct",
+            "confirm",
+            "confirmed",
+            "yes please",
+            "that one",
+            "use that",
+            "use it"
+        }:
+
+            if not all([
+                requested_title,
+                suggested_title,
+                suggested_requisition_number,
+                original_question
+            ]):
+
+                _clear_conversation(
+                    conversation_id
+                )
+
+                raise RuntimeError(
+                    "The previous HR title suggestion "
+                    "could not be recovered."
+                )
+
+            corrected_question = (
+                original_question.replace(
+                    requested_title,
+                    suggested_title
+                )
+            )
+
+            # ------------------------------------------------
+            # Avoid duplicate requisition instruction
+            # ------------------------------------------------
+
+            requisition_instruction = (
+                f"Use Requisition Number "
+                f"{suggested_requisition_number} "
+                f"for the resolved job title."
+            )
+
+            if requisition_instruction.lower() not in (
+                corrected_question.lower()
+            ):
+
+                corrected_question = (
+                    f"{corrected_question}\n\n"
+                    f"{requisition_instruction}"
+                )
+
+            print(
+                "\nTITLE CONFIRMATION:"
+            )
+
+            print(
+                "Selected title:",
+                suggested_title
+            )
+
+            print(
+                "Selected requisition:",
+                suggested_requisition_number
+            )
+
+            print(
+                "Corrected question:"
+            )
+
+            print(
+                corrected_question
+            )
+
+            _clear_conversation(
+                conversation_id
+            )
+
+            response = getOutput(
+                corrected_question
+            )
+
+            response_dict = _ensure_dict(
+                response
+            )
+
+            if (
+                response_dict.get(
+                    "status"
+                )
+                ==
+                "WAITING_FOR_USER"
+            ):
+
+                response_dict = (
+                    _prepare_qa_waiting_state(
+                        response_dict
+                    )
+                )
+
+                _save_qa_state(
+                    conversation_id,
+                    response_dict
+                )
+
+                return {
+                    "question":
+                        corrected_question,
+
+                    "status":
+                        "WAITING_FOR_USER",
+
+                    "mode":
+                        "QA",
+
+                    "state":
+                        response_dict,
+
+                    "result_summary":
+                        response_dict.get(
+                            "result_summary"
+                        ),
+
+                    "message":
+                        response_dict.get(
+                            "result_summary"
+                        )
+                }
+
+            return {
+                "question":
+                    corrected_question,
+
+                "status":
+                    "COMPLETED",
+
+                "mode":
+                    "QA",
+
+                "message":
+                    response
+            }
+
+        # ====================================================
+        # NO
+        # ====================================================
+
+        if normalized in {
+            "no",
+            "n",
+            "nope",
+            "not that",
+            "wrong",
+            "incorrect",
+            "not correct"
+        }:
+
+            previous_state[
+                "confirmation_type"
+            ] = "title_correction"
+
+            previous_state[
+                "awaiting_title"
+            ] = True
+
+            previous_state[
+                "awaiting_candidate"
+            ] = False
+
+            _save_qa_state(
+                conversation_id,
+                previous_state
+            )
+
+            return {
+                "question":
+                    question,
+
+                "status":
+                    "WAITING_FOR_USER",
+
+                "mode":
+                    "QA",
+
+                "state":
+                    previous_state,
+
+                "result_summary":
+                    (
+                        "Can you provide the correct job title "
+                        "or requisition number?"
+                    ),
+
+                "message":
+                    (
+                        "Can you provide the correct job title "
+                        "or requisition number?"
+                    )
+            }
+
+        return None
+
+    # ========================================================
+    # TITLE CORRECTION
+    # ========================================================
+
+    if confirmation_type == "title_correction":
+
+        requested_title = previous_state.get(
+            "requested_title"
+        )
+
+        if not original_question:
+
+            _clear_conversation(
+                conversation_id
+            )
+
+            raise RuntimeError(
+                "The previous HR title question "
+                "could not be recovered."
+            )
+
+        corrected_question = (
+            original_question
+        )
+
+        if requested_title:
+
+            corrected_question = (
+                original_question.replace(
+                    requested_title,
+                    question
+                )
+            )
+
+        else:
+
+            corrected_question = (
+                f"{original_question}\n\n"
+                f"Use this job title or requisition "
+                f"provided by the user: {question}"
+            )
+
+        print(
+            "\nTITLE CORRECTION:"
+        )
+
+        print(
+            "User provided:",
+            question
+        )
+
+        print(
+            "Corrected question:"
+        )
+
+        print(
+            corrected_question
+        )
+
+        _clear_conversation(
+            conversation_id
+        )
+
+        response = getOutput(
+            corrected_question
+        )
+
+        response_dict = _ensure_dict(
+            response
+        )
+
+        if (
+            response_dict.get(
+                "status"
+            )
+            ==
+            "WAITING_FOR_USER"
+        ):
+
+            response_dict = (
+                _prepare_qa_waiting_state(
+                    response_dict
+                )
+            )
+
+            _save_qa_state(
+                conversation_id,
+                response_dict
+            )
+
+            return {
+                "question":
+                    corrected_question,
+
+                "status":
+                    "WAITING_FOR_USER",
+
+                "mode":
+                    "QA",
+
+                "state":
+                    response_dict,
+
+                "result_summary":
+                    response_dict.get(
+                        "result_summary"
+                    ),
+
+                "message":
+                    response_dict.get(
+                        "result_summary"
+                    )
+            }
+
+        return {
+            "question":
+                corrected_question,
+
+            "status":
+                "COMPLETED",
+
+            "mode":
+                "QA",
+
+            "message":
+                response
+        }
+
+    # ========================================================
+    # MULTIPLE TITLE SUGGESTIONS
+    # ========================================================
+
+    if confirmation_type == "title_multiple":
+
+        title_matches = previous_state.get(
+            "title_matches",
+            []
+        )
+
+        if not isinstance(
+            title_matches,
+            list
+        ):
+
+            title_matches = []
+
+        if not title_matches:
+
+            _clear_conversation(
+                conversation_id
+            )
+
+            raise RuntimeError(
+                "The previous HR title suggestions "
+                "could not be recovered."
+            )
+
+        user_input = str(
+            question
+        ).strip()
+
+        selected_title = None
+
+        selected_requisition = None
+
+        # ====================================================
+        # OPTION NUMBER OR REQUISITION NUMBER
+        # ====================================================
+
+        if user_input.isdigit():
+
+            option_number = int(
+                user_input
+            )
+
+            # ------------------------------------------------
+            # OPTION NUMBER
+            # ------------------------------------------------
+
+            if (
+                1 <= option_number <= len(
+                    title_matches
+                )
+            ):
+
+                selected = title_matches[
+                    option_number - 1
+                ]
+
+                if isinstance(
+                    selected,
+                    dict
+                ):
+
+                    selected_title = (
+                        selected.get(
+                            "title"
+                        )
+                    )
+
+                    selected_requisition = (
+                        selected.get(
+                            "requisition_number"
+                        )
+                    )
+
+                    requisition_data = (
+                        selected.get(
+                            "requisition",
+                            {}
+                        )
+                    )
+
+                    if (
+                        not selected_title
+                        and
+                        isinstance(
+                            requisition_data,
+                            dict
+                        )
+                    ):
+
+                        selected_title = (
+                            requisition_data.get(
+                                "Title"
+                            )
+                        )
+
+                    if (
+                        not selected_requisition
+                        and
+                        isinstance(
+                            requisition_data,
+                            dict
+                        )
+                    ):
+
+                        selected_requisition = (
+                            requisition_data.get(
+                                "RequisitionNumber"
+                            )
+                        )
+
+                print(
+                    "\nTITLE OPTION NUMBER SELECTED:"
+                )
+
+                print(
+                    "Option:",
+                    option_number
+                )
+
+            # ------------------------------------------------
+            # REQUISITION NUMBER
+            # ------------------------------------------------
+
+            else:
+
+                for match in title_matches:
+
+                    if not isinstance(
+                        match,
+                        dict
+                    ):
+
+                        continue
+
+                    match_requisition = (
+                        match.get(
+                            "requisition_number"
+                        )
+                    )
+
+                    requisition_data = (
+                        match.get(
+                            "requisition",
+                            {}
+                        )
+                    )
+
+                    if (
+                        not match_requisition
+                        and
+                        isinstance(
+                            requisition_data,
+                            dict
+                        )
+                    ):
+
+                        match_requisition = (
+                            requisition_data.get(
+                                "RequisitionNumber"
+                            )
+                        )
+
+                    if (
+                        str(
+                            match_requisition
+                        ).strip()
+                        ==
+                        user_input
+                    ):
+
+                        selected_title = (
+                            match.get(
+                                "title"
+                            )
+                        )
+
+                        if (
+                            not selected_title
+                            and
+                            isinstance(
+                                requisition_data,
+                                dict
+                            )
+                        ):
+
+                            selected_title = (
+                                requisition_data.get(
+                                    "Title"
+                                )
+                            )
+
+                        selected_requisition = (
+                            match_requisition
+                        )
+
+                        break
+
+                if selected_title:
+
+                    print(
+                        "\nREQUISITION NUMBER SELECTED:"
+                    )
+
+                    print(
+                        selected_requisition
+                    )
+
+        # ====================================================
+        # EXACT DISPLAYED TITLE + REQUISITION
+        # ====================================================
+
+        if not selected_title:
+
+            option_match = re.match(
+                r"^\s*(.*?)\s*\(Requisition(?:\s+number)?\s+(\d+)\)\s*$",
+                user_input,
+                flags=re.IGNORECASE
+            )
+
+            if option_match:
+
+                entered_title = (
+                    option_match.group(
+                        1
+                    ).strip()
+                )
+
+                entered_requisition = (
+                    option_match.group(
+                        2
+                    ).strip()
+                )
+
+                print(
+                    "\nUSER SELECTED TITLE OPTION:"
+                )
+
+                print(
+                    "Entered title:",
+                    entered_title
+                )
+
+                print(
+                    "Entered requisition:",
+                    entered_requisition
+                )
+
+                for match in title_matches:
+
+                    if not isinstance(
+                        match,
+                        dict
+                    ):
+
+                        continue
+
+                    match_title = (
+                        match.get(
+                            "title"
+                        )
+                    )
+
+                    match_requisition = (
+                        match.get(
+                            "requisition_number"
+                        )
+                    )
+
+                    requisition_data = (
+                        match.get(
+                            "requisition",
+                            {}
+                        )
+                    )
+
+                    if (
+                        not match_title
+                        and
+                        isinstance(
+                            requisition_data,
+                            dict
+                        )
+                    ):
+
+                        match_title = (
+                            requisition_data.get(
+                                "Title"
+                            )
+                        )
+
+                    if (
+                        not match_requisition
+                        and
+                        isinstance(
+                            requisition_data,
+                            dict
+                        )
+                    ):
+
+                        match_requisition = (
+                            requisition_data.get(
+                                "RequisitionNumber"
+                            )
+                        )
+
+                    if (
+                        str(
+                            match_requisition
+                        ).strip()
+                        ==
+                        entered_requisition
+                    ):
+
+                        selected_title = (
+                            match_title
+                            or
+                            entered_title
+                        )
+
+                        selected_requisition = (
+                            match_requisition
+                        )
+
+                        break
+
+                if not selected_title:
+
+                    selected_title = None
+
+        # ====================================================
+        # EXACT TITLE WITHOUT REQUISITION
+        # ====================================================
+
+        if not selected_title:
+
+            normalized_input = (
+                user_input.lower()
+            )
+
+            for match in title_matches:
+
+                if not isinstance(
+                    match,
+                    dict
+                ):
+
+                    continue
+
+                match_title = (
+                    match.get(
+                        "title"
+                    )
+                )
+
+                match_requisition = (
+                    match.get(
+                        "requisition_number"
+                    )
+                )
+
+                requisition_data = (
+                    match.get(
+                        "requisition",
+                        {}
+                    )
+                )
+
+                if (
+                    not match_title
+                    and
+                    isinstance(
+                        requisition_data,
+                        dict
+                    )
+                ):
+
+                    match_title = (
+                        requisition_data.get(
+                            "Title"
+                        )
+                    )
+
+                if (
+                    not match_requisition
+                    and
+                    isinstance(
+                        requisition_data,
+                        dict
+                    )
+                ):
+
+                    match_requisition = (
+                        requisition_data.get(
+                            "RequisitionNumber"
+                        )
+                    )
+
+                if (
+                    match_title
+                    and
+                    str(
+                        match_title
+                    ).strip().lower()
+                    ==
+                    normalized_input
+                ):
+
+                    selected_title = (
+                        str(
+                            match_title
+                        ).strip()
+                    )
+
+                    selected_requisition = (
+                        match_requisition
+                    )
+
+                    break
+
+        # ====================================================
+        # INVALID SELECTION
+        # ====================================================
+
+        if not selected_title:
+
+            return {
+                "question":
+                    question,
+
+                "status":
+                    "WAITING_FOR_USER",
+
+                "mode":
+                    "QA",
+
+                "state":
+                    previous_state,
+
+                "result_summary":
+                    (
+                        "Please select one of the listed "
+                        "job titles by option number, "
+                        "requisition number, or the exact "
+                        "displayed title with requisition."
+                    ),
+
+                "message":
+                    (
+                        "Please select one of the listed "
+                        "job titles by option number, "
+                        "requisition number, or the exact "
+                        "displayed title with requisition."
+                    )
+            }
+
+        # ====================================================
+        # REQUIRE ORIGINAL QUESTION
+        # ====================================================
+
+        if not original_question:
+
+            _clear_conversation(
+                conversation_id
+            )
+
+            raise RuntimeError(
+                "The previous HR title question "
+                "could not be recovered."
+            )
+
+        # ====================================================
+        # BUILD CORRECTED QUESTION
+        # ====================================================
+
+        corrected_question = (
+            original_question
+        )
+
+        requested_title = (
+            previous_state.get(
+                "requested_title"
+            )
+        )
+
+        if requested_title:
+
+            corrected_question = (
+                corrected_question.replace(
+                    requested_title,
+                    selected_title
+                )
+            )
+
+        # ====================================================
+        # FORCE SELECTED REQUISITION
+        # ====================================================
+
+        if selected_requisition:
+
+            requisition_instruction = (
+                f"Use Requisition Number "
+                f"{selected_requisition} "
+                f"for the resolved job title."
+            )
+
+            if requisition_instruction.lower() not in (
+                corrected_question.lower()
+            ):
+
+                corrected_question = (
+                    f"{corrected_question}\n\n"
+                    f"{requisition_instruction}"
+                )
+
+        print(
+            "\nSELECTED TITLE:"
+        )
+
+        print(
+            selected_title
+        )
+
+        print(
+            "SELECTED REQUISITION:"
+        )
+
+        print(
+            selected_requisition
+        )
+
+        print(
+            "\nCORRECTED QA QUESTION:"
+        )
+
+        print(
+            corrected_question
+        )
+
+        # ====================================================
+        # CLEAR OLD CHECKPOINT
+        # ====================================================
+
+        _clear_conversation(
+            conversation_id
+        )
+
+        # ====================================================
+        # RUN HR QA AGAIN
+        # ====================================================
+
+        response = getOutput(
+            corrected_question
+        )
+
+        response_dict = _ensure_dict(
+            response
+        )
+
+        if (
+            response_dict.get(
+                "status"
+            )
+            ==
+            "WAITING_FOR_USER"
+        ):
+
+            response_dict = (
+                _prepare_qa_waiting_state(
+                    response_dict
+                )
+            )
+
+            _save_qa_state(
+                conversation_id,
+                response_dict
+            )
+
+            return {
+                "question":
+                    corrected_question,
+
+                "status":
+                    "WAITING_FOR_USER",
+
+                "mode":
+                    "QA",
+
+                "state":
+                    response_dict,
+
+                "result_summary":
+                    response_dict.get(
+                        "result_summary"
+                    ),
+
+                "message":
+                    response_dict.get(
+                        "result_summary"
+                    )
+            }
+
+        return {
+            "question":
+                corrected_question,
+
+            "status":
+                "COMPLETED",
+
+            "mode":
+                "QA",
+
+            "message":
+                response
+        }
+
+    # ========================================================
+    # CANDIDATE SUGGESTION
+    # ========================================================
+
     requested_candidate = previous_state.get(
         "requested_candidate"
     )
@@ -316,18 +1540,11 @@ def _resume_qa(
         "original_question"
     )
 
-    normalized = (
-        question
-        .strip()
-        .lower()
-    )
-
     # ========================================================
     # USER CONFIRMED CANDIDATE
     # ========================================================
 
     if normalized in {
-
         "yes",
         "y",
         "yeah",
@@ -336,15 +1553,12 @@ def _resume_qa(
         "yes this candidate",
         "yes that's correct",
         "yes thats correct"
-
     }:
 
         if not all([
-
             requested_candidate,
             suggested_candidate,
             original_question
-
         ]):
 
             _clear_conversation(
@@ -383,13 +1597,42 @@ def _resume_qa(
             "WAITING_FOR_USER"
         ):
 
+            response_dict = (
+                _prepare_qa_waiting_state(
+                    response_dict
+                )
+            )
+
             _save_qa_state(
                 conversation_id,
                 response_dict
             )
 
-        return {
+            return {
+                "question":
+                    corrected_question,
 
+                "status":
+                    "WAITING_FOR_USER",
+
+                "mode":
+                    "QA",
+
+                "state":
+                    response_dict,
+
+                "result_summary":
+                    response_dict.get(
+                        "result_summary"
+                    ),
+
+                "message":
+                    response_dict.get(
+                        "result_summary"
+                    )
+            }
+
+        return {
             "question":
                 corrected_question,
 
@@ -408,13 +1651,11 @@ def _resume_qa(
     # ========================================================
 
     if normalized in {
-
         "no",
         "n",
         "nope",
         "not this one",
         "wrong"
-
     }:
 
         previous_state[
@@ -427,7 +1668,6 @@ def _resume_qa(
         )
 
         return {
-
             "question":
                 question,
 
@@ -439,6 +1679,9 @@ def _resume_qa(
 
             "state":
                 previous_state,
+
+            "result_summary":
+                "Please provide the correct candidate name.",
 
             "message":
                 "Please provide the correct candidate name."
@@ -494,13 +1737,42 @@ def _resume_qa(
             "WAITING_FOR_USER"
         ):
 
+            response_dict = (
+                _prepare_qa_waiting_state(
+                    response_dict
+                )
+            )
+
             _save_qa_state(
                 conversation_id,
                 response_dict
             )
 
-        return {
+            return {
+                "question":
+                    corrected_question,
 
+                "status":
+                    "WAITING_FOR_USER",
+
+                "mode":
+                    "QA",
+
+                "state":
+                    response_dict,
+
+                "result_summary":
+                    response_dict.get(
+                        "result_summary"
+                    ),
+
+                "message":
+                    response_dict.get(
+                        "result_summary"
+                    )
+            }
+
+        return {
             "question":
                 corrected_question,
 
@@ -513,6 +1785,10 @@ def _resume_qa(
             "message":
                 response
         }
+
+    # ========================================================
+    # NOTHING TO RESUME
+    # ========================================================
 
     return None
 
@@ -664,16 +1940,6 @@ def execute(
             # =================================================
             # UPDATE SELECTED SLOT
             # =================================================
-            #
-            # IMPORTANT FOR AVAILABILITY RESUME.
-            #
-            # conversation.py returns selected_slot
-            # after user chooses an option such as:
-            #
-            # 5
-            #
-            # Store it in the existing state.
-            # =================================================
 
             selected_slot = (
                 conversation_result.get(
@@ -689,14 +1955,6 @@ def execute(
 
             # =================================================
             # UPDATE FLOW STAGE
-            # =================================================
-            #
-            # This records the checkpoint reached by the
-            # current confirmation.
-            #
-            # It does not by itself execute the next stage.
-            # The orchestrator/specific flow must use the
-            # stored state when continuing.
             # =================================================
 
             confirmation_type = (
@@ -783,25 +2041,6 @@ def execute(
 
             # =================================================
             # IMPORTANT TITLE UPDATE
-            # =================================================
-            #
-            # If the user supplied a NEW TITLE:
-            #
-            #     Site Engineer (Trainee)
-            #
-            # and there is NO selected requisition number,
-            # then requisition_number must be cleared.
-            #
-            # But if the user selected an option:
-            #
-            #     1
-            #
-            # conversation.py returns:
-            #
-            #     title_name = ["Site Engineer"]
-            #     requisition_number = "21"
-            #
-            # In that case DO NOT clear 21.
             # =================================================
 
             new_title = (
@@ -987,25 +2226,6 @@ def execute(
 
             }:
 
-                # -------------------------------------------------
-                # IMPORTANT
-                #
-                # DO NOT clear confirmation_type here.
-                #
-                # The old code did:
-                #
-                #     _reset_confirmation_state()
-                #
-                # which set:
-                #
-                #     confirmation_type = None
-                #
-                # before scheduling_flow() could inspect it.
-                #
-                # We still clear the temporary flags, but we keep
-                # confirmation_type until the next flow consumes it.
-                # -------------------------------------------------
-
                 _reset_confirmation_state(
                     previous_state
                 )
@@ -1149,21 +2369,6 @@ def execute(
                 # =================================================
                 # RUN ORCHESTRATION
                 # =================================================
-                #
-                # IMPORTANT:
-                #
-                # The existing state is passed.
-                #
-                # We are NOT creating a new state.
-                #
-                # For availability_slot, scheduling_flow()
-                # will see:
-                #
-                # selected_slot
-                # confirmation_type = availability_slot
-                #
-                # and enter its resume branch.
-                # =================================================
 
                 orchestration_result = (
                     orchestrate(
@@ -1185,10 +2390,6 @@ def execute(
 
                 # =================================================
                 # CLEAN UP AFTER SUCCESS
-                # =================================================
-                #
-                # Once the task is completed, confirmation_type
-                # no longer needs to remain in memory.
                 # =================================================
 
                 if not (
@@ -1394,9 +2595,6 @@ def execute(
             # =================================================
             # DETERMINE CHECKPOINT
             # =================================================
-            #
-            # This is only inferred when the task has paused.
-            # =================================================
 
             returned_confirmation_type = (
                 state.get(
@@ -1556,6 +2754,12 @@ def execute(
             "WAITING_FOR_USER"
         ):
 
+            response_dict = (
+                _prepare_qa_waiting_state(
+                    response_dict
+                )
+            )
+
             _save_qa_state(
                 conversation_id,
                 response_dict
@@ -1575,9 +2779,14 @@ def execute(
                 "state":
                     response_dict,
 
+                "result_summary":
+                    response_dict.get(
+                        "result_summary"
+                    ),
+
                 "message":
                     response_dict.get(
-                        "message"
+                        "result_summary"
                     )
             }
 
