@@ -1,4 +1,3 @@
-
 # ============================================================
 # unified_router.py
 # ============================================================
@@ -352,6 +351,11 @@ Examples:
 - send a rejection email
 - post a job description to LinkedIn
 - publish a job opening on LinkedIn
+- get marketing intelligence for a job requisition
+- generate marketing intelligence for a job
+- generate marketing insights for a requisition
+- get marketing intelligence for a job position
+- analyze a job requisition using marketing intelligence
 
 ============================================================
 2. QA
@@ -369,6 +373,11 @@ Examples:
 - give me candidate details
 - who is the recruiter?
 - show candidates in requisition 44
+- how many candidates are in requisition 44?
+- how many candidates are in a job?
+- what is the total number of candidates?
+- give me the candidate count
+- how many candidates applied for a requisition?
 
 ============================================================
 IMPORTANT INTERVIEWER RULE
@@ -600,6 +609,100 @@ TASKING
 INTERVIEW_QUESTIONS
 
 ============================================================
+MARKETING INTELLIGENCE RULE
+============================================================
+
+Questions asking the system to generate, provide, or get
+marketing intelligence for an HR job, position, requisition,
+or job opening are TASKING requests.
+
+Examples:
+
+"Give me marketing intelligence for requisition 4."
+
+-> TASKING
+
+"Generate marketing intelligence for requisition 44."
+
+-> TASKING
+
+"Get marketing intelligence for Site Engineer."
+
+-> TASKING
+
+"Generate marketing insights for the Site Engineer position."
+
+-> TASKING
+
+"Give me a marketing intelligence report for requisition 44."
+
+-> TASKING
+
+"Analyze requisition 44 using marketing intelligence."
+
+-> TASKING
+
+"Can you generate marketing intelligence for this job?"
+
+-> TASKING
+
+
+IMPORTANT:
+
+These requests MUST NOT be classified as QA merely because
+they ask for information.
+
+The user is asking the system to execute the
+MARKETINGINTELLIGENCEHR workflow.
+
+They must be sent to:
+
+TASKING
+    ↓
+MARKETINGINTELLIGENCEHR
+
+
+A general marketing question that is unrelated to an HR
+job, position, or requisition is NOT automatically
+MARKETINGINTELLIGENCEHR.
+
+Example:
+
+"What are the latest marketing trends?"
+
+This is NOT:
+
+MARKETINGINTELLIGENCEHR
+
+
+The request must be related to an HR job, position,
+requisition, or job opening.
+
+============================================================
+EXAMPLES
+============================================================
+
+"Give me marketing intelligence for requisition 4."
+
+-> TASKING
+
+"Generate marketing intelligence for requisition 44."
+
+-> TASKING
+
+"Give me marketing intelligence for Site Engineer."
+
+-> TASKING
+
+"Generate marketing insights for the Site Engineer position."
+
+-> TASKING
+
+"Analyze requisition 44 using marketing intelligence."
+
+
+
+============================================================
 JOB DESCRIPTION RULE
 ============================================================
 
@@ -647,6 +750,112 @@ TASKING
 LINKEDIN_JOB_DESC
 
 Do NOT classify a complete standalone job description as QA.
+
+============================================================
+CANDIDATE COUNT RULE
+============================================================
+
+Questions asking for the number or total count of candidates
+are QA requests.
+
+These questions ask for HR recruitment DATA.
+
+They are NOT TASKING requests.
+
+Examples:
+
+"How many candidates are in requisition 44?"
+
+-> QA
+
+"How many candidates are in Site Engineer?"
+
+-> QA
+
+"How many candidates are in Oracle HCM?"
+
+-> QA
+
+"Total how many candidates are in Oracle HCM?"
+
+-> QA
+
+"What is the total number of candidates for requisition 44?"
+
+-> QA
+
+"Give me the candidate count for Oracle HCM."
+
+-> QA
+
+"How many people applied for requisition 44?"
+
+-> QA
+
+"What is the number of candidates under Oracle HCM?"
+
+-> QA
+
+"Tell me the total candidates for Site Engineer."
+
+-> QA
+
+"Count the candidates in requisition 44."
+
+-> QA
+
+"Give me the total candidate count."
+
+-> QA
+
+Even when the user uses words such as:
+
+- total
+- count
+- number
+- how many
+- candidate count
+- people applied
+
+the request remains QA when the user is asking for
+information from HR recruitment data.
+
+============================================================
+CANDIDATE LIST RULE
+============================================================
+
+Questions asking to list, show, or give candidate names
+are QA requests.
+
+Examples:
+
+"Show candidates in requisition 44."
+
+-> QA
+
+"Give me all candidates in requisition 44."
+
+-> QA
+
+"Who are the candidates for Oracle HCM?"
+
+-> QA
+
+"List the candidates in Site Engineer."
+
+-> QA
+
+"Give me the candidates under Oracle HCM."
+
+-> QA
+
+"Show me the candidates for requisition 44."
+
+-> QA
+
+These are information requests about HR recruitment data.
+
+They are NOT TASKING requests.
 
 ============================================================
 GENERAL INTENT RULE
@@ -748,6 +957,26 @@ requisition number 44."
 
 -> QA
 
+"How many candidates are in requisition 44?"
+
+-> QA
+
+"How many candidates are in Oracle HCM?"
+
+-> QA
+
+"Total how many candidates are in Oracle HCM?"
+
+-> QA
+
+"What is the candidate count for Site Engineer?"
+
+-> QA
+
+"Give me the total number of candidates for requisition 44."
+
+-> QA
+
 ============================================================
 FINAL CLASSIFICATION PRINCIPLE
 ============================================================
@@ -788,7 +1017,24 @@ TASKING
 If the user asks to generate, provide, suggest, or prepare
 interview questions:
 
+If the user asks to generate, provide, suggest, or retrieve
+marketing intelligence for an HR job, position, requisition,
+or job opening:
+
+
 TASKING
+
+If the user asks how many candidates exist:
+
+QA
+
+If the user asks for the total candidate count:
+
+QA
+
+If the user asks to list or show candidates:
+
+QA
 
 ============================================================
 USER QUESTION
