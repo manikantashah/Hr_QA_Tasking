@@ -450,6 +450,111 @@ the interviewers from INTERVIEWERDATA.
 Do NOT classify these questions as QA.
 
 ============================================================
+INTERVIEW STATUS QUERY VS INTERVIEW ACTION
+============================================================
+
+First determine whether the user wants:
+
+1. INFORMATION about candidates/application status
+OR
+2. AN ACTION performed by the system.
+
+------------------------------------------------------------
+INTERVIEW ACTION
+------------------------------------------------------------
+
+Use TASKING when the user explicitly wants to perform an
+interview action.
+
+Examples:
+
+"Schedule an interview for Jithu Daniel."
+
+"Book Jithu Daniel for a second level interview."
+
+"Arrange an interview for Jithu Daniel."
+
+"Set up a second level interview for Jithu Daniel."
+
+These are ACTION requests.
+
+Therefore:
+
+TASKING
+
+------------------------------------------------------------
+INTERVIEW STATUS / CANDIDATE INFORMATION
+------------------------------------------------------------
+
+Use QA when the user asks for candidates based on an
+interview/application state.
+
+Examples:
+
+"Give me candidates whose 2nd level interview is to be scheduled."
+
+"Show me candidates waiting for their second level interview."
+
+"Which candidates have their 2nd level interview scheduled?"
+
+"Give me candidates who completed their second level interview."
+
+"Show candidates who finished the second level interview."
+
+These are INFORMATION requests.
+
+Therefore:
+
+QA
+
+------------------------------------------------------------
+IMPORTANT PRIORITY RULE
+------------------------------------------------------------
+
+A phrase such as:
+
+"to be scheduled"
+
+does NOT automatically mean the user wants to schedule
+an interview.
+
+Example:
+
+"Give me candidates whose 2nd level interview is to be scheduled."
+
+means:
+
+GET candidates whose application state is:
+
+"2nd Level Interview to be Scheduled"
+
+It does NOT mean:
+
+"Schedule an interview."
+
+------------------------------------------------------------
+CANDIDATE LIST PRIORITY
+------------------------------------------------------------
+
+If the question contains phrases such as:
+
+"give me candidates"
+"show me candidates"
+"list candidates"
+"which candidates"
+"who are the candidates"
+"can u give me candidates"
+
+and the question describes an interview/application state,
+classify it as:
+
+QA
+
+unless the user explicitly asks to perform an action for
+a candidate.
+
+
+============================================================
 SCHEDULE RULE
 ============================================================
 
