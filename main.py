@@ -2295,6 +2295,400 @@ Use:
 m.candidate_public_state_name
 
 ============================================================
+CANDIDATE APPLICATION STATE — INTENT NORMALIZATION
+==================================================
+
+The user's wording for a candidate application state may NOT
+exactly match the value stored in the database.
+
+Before generating SQL, FIRST understand the user's intended
+candidate state.
+
+Do NOT blindly copy the user's wording into the SQL WHERE
+clause.
+
+The LLM must:
+
+1. Understand the meaning of the complete user question.
+2. Identify whether the user is asking about candidate
+   application state/status.
+3. Normalize the user's natural-language state expression
+   to the canonical state value stored in PublicStateName.
+4. Use the canonical database value in the SQL.
+5. Do NOT invent a new state value from the user's wording.
+6. Do NOT assume word order in the user's question must match
+   the database value.
+7. Ignore capitalization and harmless grammatical variations.
+
+============================================================
+CANONICAL CANDIDATE STATES
+==========================
+
+The candidate application states available in the HR data are:
+
+1. Screening Completed
+2. 1st Level Interview Scheduled
+3. 1st level Interview to be Scheduled
+4. Selected for Offer
+5. Rejected by Employer
+6. 2nd Level Interview to be Scheduled
+7. 2nd Level Interview Scheduled
+8. 2nd Level Interview Completed
+9. To be Created
+
+When a user asks about candidate status, map the user's wording
+to one of these canonical states.
+
+============================================================
+STATE 1 — SCREENING COMPLETED
+=============================
+
+The following expressions should be understood as:
+
+PublicStateName = 'Screening Completed'
+
+Examples:
+
+* "completed screening"
+* "screening completed"
+* "finished screening"
+* "done with screening"
+* "screening is complete"
+* "completed the screening"
+* "candidates who completed screening"
+* "candidates who have completed the screening"
+* "who finished screening?"
+* "who has finished the screening?"
+
+IMPORTANT:
+
+"completed screening" and "screening completed" have the same
+business meaning.
+
+The database value is:
+
+'Screening Completed'
+
+Therefore, do NOT generate:
+
+PublicStateName = 'Completed Screening'
+
+Generate:
+
+PublicStateName = 'Screening Completed'
+
+============================================================
+STATE 2 — 1ST LEVEL INTERVIEW SCHEDULED
+=======================================
+
+The following expressions should be understood as:
+
+PublicStateName = '1st Level Interview Scheduled'
+
+Examples:
+
+* "first level interview scheduled"
+* "1st level interview scheduled"
+* "first-level interview is scheduled"
+* "candidates with a scheduled first level interview"
+* "who has their first level interview scheduled?"
+
+Use the canonical database state:
+
+'1st Level Interview Scheduled'
+
+============================================================
+STATE 3 — 1ST LEVEL INTERVIEW TO BE SCHEDULED
+=============================================
+
+The following expressions should be understood as:
+
+PublicStateName = '1st level Interview to be Scheduled'
+
+Examples:
+
+* "first level interview to be scheduled"
+* "1st level interview to be scheduled"
+* "first level interview still needs to be scheduled"
+* "who needs a first level interview scheduled?"
+* "candidates waiting for first level interview scheduling"
+
+Use the canonical database state:
+
+'1st level Interview to be Scheduled'
+
+============================================================
+STATE 4 — SELECTED FOR OFFER
+============================
+
+The following expressions should be understood as:
+
+PublicStateName = 'Selected for Offer'
+
+Examples:
+
+* "selected for offer"
+* "candidates selected for offer"
+* "who was selected for an offer?"
+* "who are selected for offer?"
+
+Use:
+
+'Selected for Offer'
+
+============================================================
+STATE 5 — REJECTED BY EMPLOYER
+==============================
+
+The following expressions should be understood as:
+
+PublicStateName = 'Rejected by Employer'
+
+Examples:
+
+* "rejected by employer"
+* "candidates rejected by the employer"
+* "who was rejected?"
+* "who are the rejected candidates?"
+
+Use:
+
+'Rejected by Employer'
+
+============================================================
+STATE 6 — 2ND LEVEL INTERVIEW TO BE SCHEDULED
+=============================================
+
+The following expressions should be understood as:
+
+PublicStateName = '2nd Level Interview to be Scheduled'
+
+Examples:
+
+* "second level interview to be scheduled"
+* "2nd level interview to be scheduled"
+* "candidates waiting for second level interview scheduling"
+* "who still needs a second level interview?"
+
+Use:
+
+'2nd Level Interview to be Scheduled'
+
+============================================================
+STATE 7 — 2ND LEVEL INTERVIEW SCHEDULED
+=======================================
+
+The following expressions should be understood as:
+
+PublicStateName = '2nd Level Interview Scheduled'
+
+Examples:
+
+* "second level interview scheduled"
+* "2nd level interview scheduled"
+* "candidates with a scheduled second level interview"
+* "who has their second level interview scheduled?"
+
+Use:
+
+'2nd Level Interview Scheduled'
+
+============================================================
+STATE 8 — 2ND LEVEL INTERVIEW COMPLETED
+=======================================
+
+The following expressions should be understood as:
+
+PublicStateName = '2nd Level Interview Completed'
+
+Examples:
+
+* "second level interview completed"
+* "2nd level interview completed"
+* "finished second level interview"
+* "completed the second interview"
+* "candidates who finished the second level interview"
+
+Use:
+
+'2nd Level Interview Completed'
+
+============================================================
+STATE 9 — TO BE CREATED
+=======================
+
+The following expressions should be understood as:
+
+PublicStateName = 'To be Created'
+
+Examples:
+
+* "to be created"
+* "candidates in to be created"
+* "which candidates are to be created?"
+
+Use:
+
+'To be Created'
+
+============================================================
+IMPORTANT QUERY UNDERSTANDING RULE
+==================================
+
+The LLM must understand the COMPLETE USER INTENT.
+
+Do NOT perform literal keyword matching.
+
+For example:
+
+User:
+"Can you give those who are completed screening in
+Oracle HCM Functional Specialist?"
+
+Interpretation:
+
+candidate state = Screening Completed
+
+Do NOT interpret the state as:
+
+'Completed Screening'
+
+Instead generate SQL using:
+
+PublicStateName = 'Screening Completed'
+
+---
+
+User:
+"Can you give those who finished screening in Oracle HCM
+Functional Specialist?"
+
+Interpretation:
+
+candidate state = Screening Completed
+
+---
+
+User:
+"Show candidates whose first interview has already been
+scheduled for Oracle HCM Functional Specialist."
+
+Interpretation:
+
+candidate state = 1st Level Interview Scheduled
+
+---
+
+User:
+"Who is still waiting for the second level interview to
+be scheduled?"
+
+Interpretation:
+
+candidate state = 2nd Level Interview to be Scheduled
+
+============================================================
+STATE QUERY GENERATION
+======================
+
+When the user asks:
+
+"Give me the candidates who <state expression> for <job title>"
+
+the SQL should contain BOTH:
+
+1. The correct requisition/job title filter.
+2. The normalized canonical PublicStateName filter.
+
+Example:
+
+User:
+"Can you give those who completed screening in
+Oracle HCM Functional Specialist?"
+
+Correct conceptual SQL:
+
+SELECT DISTINCT
+m.candidate_name
+FROM master_df AS m
+WHERE
+m.requisition_number = '130'
+AND LOWER(TRIM(m.requisition_title)) =
+LOWER(TRIM('Oracle HCM Functional Specialist'))
+AND LOWER(TRIM(m.candidate_public_state_name)) =
+LOWER(TRIM('Screening Completed'));
+
+============================================================
+CRITICAL RULE
+=============
+
+The wording used by the user and the value stored in the
+database do NOT need to be identical.
+
+Always distinguish:
+
+USER EXPRESSION
+from
+DATABASE VALUE
+
+Examples:
+
+"completed screening"
+-> "Screening Completed"
+
+"finished screening"
+-> "Screening Completed"
+
+"first interview is scheduled"
+-> "1st Level Interview Scheduled"
+
+"second interview waiting to be scheduled"
+-> "2nd Level Interview to be Scheduled"
+
+"finished second interview"
+-> "2nd Level Interview Completed"
+
+The LLM must normalize the meaning before generating SQL.
+
+============================================================
+DO NOT INVENT STATES
+====================
+
+Only use the canonical states actually available in the
+HR data.
+
+Never generate states such as:
+
+* "Completed Screening"
+* "First Interview Done"
+* "Interview Pending"
+* "Offer Selected"
+* "Employer Rejection"
+
+unless those exact values actually exist in the database.
+
+Map natural language to the closest supported canonical
+business state.
+
+============================================================
+FINAL VALIDATION
+================
+
+Before returning SQL, verify:
+
+* What is the user asking for?
+* Is the user asking about candidate application state?
+* What candidate state does the user's wording mean?
+* What is the exact canonical state stored in the database?
+* Is the canonical state used in the WHERE clause?
+* Is the correct requisition/job title also filtered?
+* Is candidate_name returned when the user asks for candidates?
+
+Never treat the user's wording as the database value without
+first checking its intended meaning.
+
+
+============================================================
 REQUISITION STATUS
 ============================================================
 
@@ -2556,7 +2950,7 @@ The column:
 
 w.duration
 
-contains a date range in text format.
+contains a date range in TEXT format.
 
 Examples:
 
@@ -2590,7 +2984,7 @@ SUPPORTED DURATION FORMATS
 
 The w.duration column may contain either:
 
-1. Completed experience:
+1. COMPLETED EXPERIENCE
 
 <start_month> <start_year> – <end_month> <end_year>
 
@@ -2598,7 +2992,7 @@ Example:
 
 Jun 2018 – Jan 2020
 
-2. Current experience:
+2. CURRENT EXPERIENCE
 
 <start_month> <start_year> – Present
 
@@ -2608,49 +3002,296 @@ Jan 2025 – Present
 
 The SQL MUST support both formats.
 
+The separator between the start and end values may be:
+
+*
+
+–
+—
+
+The spacing around the separator may also vary.
+
+Examples:
+
+Jun 2018 – Jan 2020
+
+Jun 2018- Jan 2020
+
+Jun 2018 - Jan 2020
+
+Jun 2018–Jan 2020
+
+Jun 2018—Jan 2020
+
+Therefore, DO NOT rely on fixed character positions in the
+original w.duration string.
+
+============================================================
+DURATION NORMALIZATION
+======================
+
+Before parsing the duration, normalize the separator.
+
+Convert the following separators:
+
+*
+
+–
+—
+
+into:
+
+|
+
+Conceptually use:
+
+REPLACE(
+REPLACE(
+REPLACE(
+TRIM(w.duration),
+'—',
+'|'
+),
+'–',
+'|'
+),
+'-',
+'|'
+)
+
+For example:
+
+Jun 2018 – Jan 2020
+
+must become conceptually:
+
+Jun 2018|Jan 2020
+
+And:
+
+Jun 2018-Jan 2020
+
+must become:
+
+Jun 2018|Jan 2020
+
+And:
+
+Jun 2018—Jan 2020
+
+must become:
+
+Jun 2018|Jan 2020
+
+IMPORTANT:
+
+Normalization MUST happen before extracting the start and
+end values.
+
+============================================================
+START PART EXTRACTION
+=====================
+
+After normalization, extract the portion BEFORE:
+
+|
+
+For example:
+
+Jun 2018|Jan 2020
+
+must produce:
+
+start_part = Jun 2018
+
+Conceptually:
+
+TRIM(
+SUBSTR(
+normalized_duration,
+1,
+INSTR(normalized_duration, '|') - 1
+)
+)
+
+Do NOT extract the start year directly from the original
+w.duration before normalization.
+
+============================================================
+END PART EXTRACTION
+===================
+
+After normalization, extract the portion AFTER:
+
+|
+
+For example:
+
+Jun 2018|Jan 2020
+
+must produce:
+
+end_part = Jan 2020
+
+Conceptually:
+
+TRIM(
+SUBSTR(
+normalized_duration,
+INSTR(normalized_duration, '|') + 1
+)
+)
+
+Do NOT extract the end month directly from the original
+w.duration before normalization.
+
+============================================================
+MANDATORY CTE PARSING STRUCTURE
+===============================
+
+When the duration calculation is complex, prefer using
+separate CTEs so that parsing is clear and safe.
+
+Preferred conceptual structure:
+
+WITH work_rows AS (
+SELECT DISTINCT
+screening_header_id,
+requisition_header_id,
+candidate_line_id,
+job_title,
+company_name,
+duration
+FROM work_experience_df
+),
+
+normalized_rows AS (
+SELECT
+screening_header_id,
+requisition_header_id,
+candidate_line_id,
+job_title,
+company_name,
+duration,
+
+```
+    REPLACE(
+        REPLACE(
+            REPLACE(
+                TRIM(duration),
+                '—',
+                '|'
+            ),
+            '–',
+            '|'
+        ),
+        '-',
+        '|'
+    ) AS normalized_duration
+
+FROM work_rows
+```
+
+),
+
+split_rows AS (
+SELECT
+screening_header_id,
+requisition_header_id,
+candidate_line_id,
+job_title,
+company_name,
+duration,
+normalized_duration,
+
+```
+    TRIM(
+        SUBSTR(
+            normalized_duration,
+            1,
+            INSTR(normalized_duration, '|') - 1
+        )
+    ) AS start_part,
+
+    TRIM(
+        SUBSTR(
+            normalized_duration,
+            INSTR(normalized_duration, '|') + 1
+        )
+    ) AS end_part
+
+FROM normalized_rows
+```
+
+)
+
+Additional CTEs may then be used to calculate:
+
+start_month
+start_year
+end_month
+end_year
+duration_months
+
+IMPORTANT:
+
+Using multiple CTEs is preferred because SQL aliases created
+in one SELECT should not be assumed to be reusable in the
+same SELECT.
+
 ============================================================
 HOW TO PARSE START DATE
 =======================
 
-For:
+After extracting:
 
-Jun 2018 – Jan 2020
+start_part
 
-the format is:
+the start month is the first three characters.
 
-<start_month> <start_year> – <end_month> <end_year>
+Use:
 
-Extract the start month using:
+LOWER(
+SUBSTR(
+start_part,
+1,
+3
+)
+)
 
-LOWER(SUBSTR(TRIM(w.duration), 1, 3))
-
-Extract the start year using:
-
-CAST(SUBSTR(TRIM(w.duration), 5, 4) AS INTEGER)
-
-IMPORTANT:
-
-Month extraction MUST use LOWER().
-
-The source data may contain:
+Examples:
 
 Jan
 JAN
 jan
 
-Feb
-FEB
-feb
+must all become:
 
-Jun
-JUN
-jun
+jan
 
-Therefore, month names MUST ALWAYS be normalized using:
+The start year is the final four characters of start_part.
 
-LOWER(...)
+Use:
 
-before comparing them with month names.
+CAST(
+SUBSTR(
+start_part,
+-4
+)
+AS INTEGER
+)
+
+Examples:
+
+Jun 2018
+-> 2018
+
+Jan 2025
+-> 2025
+
+IMPORTANT:
+
+The start month MUST be normalized using LOWER().
 
 ============================================================
 START MONTH TO MONTH NUMBER
@@ -2658,7 +3299,13 @@ START MONTH TO MONTH NUMBER
 
 Use:
 
-CASE LOWER(SUBSTR(TRIM(w.duration), 1, 3))
+CASE LOWER(
+SUBSTR(
+start_part,
+1,
+3
+)
+)
 WHEN 'jan' THEN 1
 WHEN 'feb' THEN 2
 WHEN 'mar' THEN 3
@@ -2673,12 +3320,9 @@ WHEN 'nov' THEN 11
 WHEN 'dec' THEN 12
 END
 
-DO NOT generate:
+DO NOT use:
 
-CASE SUBSTR(TRIM(w.duration), 1, 3)
-WHEN 'jan' THEN 1
-WHEN 'jun' THEN 6
-END
+CASE SUBSTR(...)
 
 The SQL MUST use:
 
@@ -2688,17 +3332,47 @@ CASE LOWER(SUBSTR(...))
 HOW TO PARSE END DATE
 =====================
 
-For a completed duration:
+For a COMPLETED duration:
 
 Jun 2018 – Jan 2020
 
-extract the end month using:
+after normalization:
 
-LOWER(SUBSTR(TRIM(w.duration), -8, 3))
+Jun 2018|Jan 2020
 
-extract the end year using:
+end_part is:
 
-CAST(SUBSTR(TRIM(w.duration), -4) AS INTEGER)
+Jan 2020
+
+Extract the end month using:
+
+LOWER(
+SUBSTR(
+end_part,
+1,
+3
+)
+)
+
+Extract the end year using:
+
+CAST(
+SUBSTR(
+end_part,
+-4
+)
+AS INTEGER
+)
+
+IMPORTANT:
+
+Do NOT use fixed positions such as:
+
+SUBSTR(TRIM(w.duration), -8, 3)
+
+on the original duration.
+
+The SQL must first create end_part.
 
 ============================================================
 END MONTH TO MONTH NUMBER
@@ -2706,7 +3380,13 @@ END MONTH TO MONTH NUMBER
 
 Use:
 
-CASE LOWER(SUBSTR(TRIM(w.duration), -8, 3))
+CASE LOWER(
+SUBSTR(
+end_part,
+1,
+3
+)
+)
 WHEN 'jan' THEN 1
 WHEN 'feb' THEN 2
 WHEN 'mar' THEN 3
@@ -2721,16 +3401,9 @@ WHEN 'nov' THEN 11
 WHEN 'dec' THEN 12
 END
 
-DO NOT generate:
+IMPORTANT:
 
-CASE SUBSTR(TRIM(w.duration), -8, 3)
-WHEN 'jan' THEN 1
-WHEN 'jun' THEN 6
-END
-
-The SQL MUST use:
-
-CASE LOWER(SUBSTR(...))
+Always normalize the month with LOWER().
 
 ============================================================
 HANDLING "PRESENT"
@@ -2738,7 +3411,7 @@ HANDLING "PRESENT"
 
 IMPORTANT:
 
-The end of w.duration may be:
+The end part may be:
 
 Present
 
@@ -2746,90 +3419,112 @@ Example:
 
 Jan 2025 – Present
 
-"Present" means the candidate is still working in that role.
+Present means the candidate is still working in that role.
 
-DO NOT treat "Present" as a missing duration.
+DO NOT treat Present as a missing duration.
 
-DO NOT allow a Present row to become NULL.
+DO NOT return NULL for a valid Present row.
 
-When the duration ends with:
+DO NOT attempt:
 
-Present
+CAST(end_part AS INTEGER)
 
-use the current month and current year as the end date.
+when end_part is Present.
 
-For the current month use:
+DO NOT attempt to extract a year from Present.
 
-CAST(STRFTIME('%m', 'now') AS INTEGER)
+Determine Present using:
 
-For the current year use:
+LOWER(TRIM(end_part)) = 'present'
 
-CAST(STRFTIME('%Y', 'now') AS INTEGER)
+or an equivalent case-insensitive condition.
+
+============================================================
+CURRENT DATE FOR PRESENT
+========================
+
+For Present rows, use the current month:
+
+CAST(
+STRFTIME(
+'%m',
+'now'
+)
+AS INTEGER
+)
+
+Use the current year:
+
+CAST(
+STRFTIME(
+'%Y',
+'now'
+)
+AS INTEGER
+)
 
 IMPORTANT:
 
-strftime() may be used with:
+strftime() is allowed with:
 
 'now'
 
 because 'now' is a valid SQLite date/time value.
 
-However, DO NOT use strftime() directly on:
+DO NOT use strftime() directly on:
 
 Jun 2018
 Jan 2020
-
-because these are incomplete SQLite dates.
+Jan 2025
 
 ============================================================
-DETERMINE WHETHER THE ROW IS "PRESENT"
-======================================
+DETERMINE WHETHER ROW IS PRESENT
+================================
 
-Check the duration using:
+Use:
 
-LOWER(TRIM(w.duration)) LIKE '%present'
+LOWER(TRIM(end_part)) = 'present'
 
-or an equivalent case-insensitive condition.
+or an equivalent case-insensitive check.
 
-For example:
+Example:
 
 CASE
-WHEN LOWER(TRIM(w.duration)) LIKE '%present'
+WHEN LOWER(TRIM(end_part)) = 'present'
 THEN ...
 ELSE ...
 END
 
-The Present condition MUST use the current month/year.
+The Present branch MUST use the current month and current
+year.
 
 ============================================================
 CALCULATE COMPLETED EXPERIENCE IN MONTHS
 ========================================
 
-For a completed duration:
+For:
 
 Jun 2018 – Jan 2020
 
-calculate:
+use:
 
-(
-end_year - start_year
-) * 12
+start_month = 6
+start_year = 2018
+
+end_month = 1
+end_year = 2020
+
+Then:
+
+(end_year - start_year) * 12
 +
-(
-end_month_number - start_month_number
-)
-
-Example:
-
-Start month = 6
-Start year = 2018
-
-End month = 1
-End year = 2020
+(end_month - start_month)
 
 Therefore:
 
-(2020 - 2018) * 12 + (1 - 6)
+(2020 - 2018) * 12
++
+(1 - 6)
 
 = 19 months
 
@@ -2841,29 +3536,25 @@ For:
 
 Jan 2025 – Present
 
-calculate:
+use:
 
-(
-current_year - start_year
-) * 12
+start_month = 1
+start_year = 2025
+
+current_month = current month
+current_year = current year
+
+Then:
+
+(current_year - start_year) * 12
 +
-(
-current_month - start_month_number
-)
+(current_month - start_month)
 
-Example:
+If current month/year is September 2026:
 
-If the current date is September 2026:
-
-Start month = 1
-Start year = 2025
-
-Current month = 9
-Current year = 2026
-
-Therefore:
-
-(2026 - 2025) * 12 + (9 - 1)
+(2026 - 2025) * 12
++
+(9 - 1)
 
 = 20 months
 
@@ -2871,84 +3562,781 @@ Therefore:
 COMPLETED AND PRESENT ROWS
 ==========================
 
-The SQL MUST support BOTH:
+The SQL MUST support:
 
-1. Completed experience:
+1. Completed:
 
 Jun 2018 – Jan 2020
 
-2. Current experience:
+2. Present:
 
 Jan 2025 – Present
 
-For completed rows:
+Completed:
 
-* extract end month from w.duration
-* extract end year from w.duration
+Use parsed end_month and end_year.
 
-For Present rows:
+Present:
 
-* use current month
-* use current year
+Use current month and current year.
 
-The SQL MUST NOT return NULL for a valid Present row.
+The SQL MUST NOT allow a valid Present row to become NULL.
+
+============================================================
+UNIQUE WORK EXPERIENCE ROWS
+===========================
+
+For TOTAL work-experience calculations, first create unique
+work-experience records.
+
+Use:
+
+WITH work_rows AS (
+SELECT DISTINCT
+screening_header_id,
+requisition_header_id,
+candidate_line_id,
+job_title,
+company_name,
+duration
+FROM work_experience_df
+)
+
+IMPORTANT:
+
+Each unique work-experience record must be counted only once.
+
+============================================================
+WORK EXPERIENCE JOIN DUPLICATE PREVENTION
+=========================================
+
+IMPORTANT:
+
+Do NOT allow duplicate master_df rows to multiply a
+work-experience record.
+
+master_df may contain multiple records associated with the
+same candidate.
+
+Therefore, for total work-experience calculations:
+
+DO NOT directly do:
+
+FROM master_df m
+JOIN work_experience_df w
+ON ...
+
+followed by:
+
+SUM(duration_calculation)
+
+unless the query has already guaranteed that each
+work-experience record can match only once.
+
+PREFERRED METHOD:
+
+Use work_experience_df as the main table.
+
+Create:
+
+work_rows
+
+with DISTINCT.
+
+Then use:
+
+EXISTS
+
+to verify the requested candidate.
+
+Preferred structure:
+
+WITH work_rows AS (
+SELECT DISTINCT
+screening_header_id,
+requisition_header_id,
+candidate_line_id,
+job_title,
+company_name,
+duration
+FROM work_experience_df
+)
+
+SELECT ...
+
+FROM work_rows w
+
+WHERE EXISTS (
+SELECT 1
+FROM master_df m
+WHERE LOWER(TRIM(m.candidate_name)) =
+LOWER(TRIM('Candidate Name'))
+
+```
+  AND m.screening_header_id =
+      w.screening_header_id
+
+  AND m.requisition_header_id =
+      w.requisition_header_id
+
+  AND m.candidate_line_id =
+      w.candidate_line_id
+```
+
+)
+
+IMPORTANT:
+
+EXISTS verifies that the work-experience row belongs to
+the requested candidate without multiplying the row.
+
+============================================================
+CANDIDATE MATCHING
+==================
+
+Match the candidate using:
+
+LOWER(TRIM(m.candidate_name)) =
+LOWER(TRIM('Candidate Name'))
+
+The relationship keys are:
+
+m.screening_header_id =
+w.screening_header_id
+
+AND
+
+m.requisition_header_id =
+w.requisition_header_id
+
+AND
+
+m.candidate_line_id =
+w.candidate_line_id
+
+Do not invent other relationship keys.
 
 ============================================================
 TOTAL WORK EXPERIENCE
 =====================
 
-When the user asks questions such as:
+When the user asks:
 
 * total work experience
 * total years of experience
 * how many years of work experience
 * total how many years
 * overall work experience
+* overall years of experience
 * how many years has the candidate worked
 * total experience
-* overall years of experience
+* total employment experience
 
 the SQL MUST:
 
-1. Find all matching work-experience rows.
-2. Calculate the duration of each row in MONTHS.
-3. Support both completed and Present rows.
-4. SUM all matching months.
-5. Convert the total months to years.
+1. Find all UNIQUE work-experience records for the candidate.
 
-The final calculation MUST be:
+2. Prevent duplicate work-experience records.
+
+3. Normalize the duration separator.
+
+4. Extract start_part.
+
+5. Extract end_part.
+
+6. Parse the start month.
+
+7. Parse the start year.
+
+8. Detect whether the end is Present.
+
+9. If Present, use current month/current year.
+
+10. Otherwise parse the end month/year.
+
+11. Calculate each duration in MONTHS.
+
+12. SUM the unique duration months.
+
+13. Divide the total months by 12.0.
+
+14. ROUND the final result to 2 decimals.
+
+The final calculation MUST conceptually be:
 
 ROUND(
-SUM(total_months) / 12.0,
+SUM(duration_months) / 12.0,
 2
+)
+
+The final result is YEARS.
+
+============================================================
+DO NOT SUM ROUNDED YEARS
+========================
+
+Correct:
+
+Record 1 -> months
+Record 2 -> months
+Record 3 -> months
+
+Then:
+
+SUM(months)
+
+Then:
+
+SUM(months) / 12.0
+
+Then:
+
+ROUND(..., 2)
+
+Incorrect:
+
+Record 1 -> years
+Record 2 -> years
+Record 3 -> years
+
+Then:
+
+SUM(years)
+
+Do NOT round individual rows to years before summing.
+
+============================================================
+TOTAL WORK EXPERIENCE QUERY STRATEGY
+====================================
+
+For total work experience, prefer this conceptual structure:
+
+WITH work_rows AS (
+SELECT DISTINCT
+screening_header_id,
+requisition_header_id,
+candidate_line_id,
+job_title,
+company_name,
+duration
+FROM work_experience_df
+),
+
+normalized_rows AS (
+SELECT
+screening_header_id,
+requisition_header_id,
+candidate_line_id,
+job_title,
+company_name,
+duration,
+
+```
+    REPLACE(
+        REPLACE(
+            REPLACE(
+                TRIM(duration),
+                '—',
+                '|'
+            ),
+            '–',
+            '|'
+        ),
+        '-',
+        '|'
+    ) AS normalized_duration
+
+FROM work_rows
+```
+
+),
+
+split_rows AS (
+SELECT
+screening_header_id,
+requisition_header_id,
+candidate_line_id,
+job_title,
+company_name,
+duration,
+
+```
+    TRIM(
+        SUBSTR(
+            normalized_duration,
+            1,
+            INSTR(normalized_duration, '|') - 1
+        )
+    ) AS start_part,
+
+    TRIM(
+        SUBSTR(
+            normalized_duration,
+            INSTR(normalized_duration, '|') + 1
+        )
+    ) AS end_part
+
+FROM normalized_rows
+```
+
+),
+
+duration_rows AS (
+SELECT
+screening_header_id,
+requisition_header_id,
+candidate_line_id,
+job_title,
+company_name,
+duration,
+start_part,
+end_part,
+
+```
+    CASE
+        WHEN LOWER(TRIM(end_part)) = 'present'
+        THEN
+            (
+                CAST(STRFTIME('%Y', 'now') AS INTEGER)
+                -
+                CAST(SUBSTR(start_part, -4) AS INTEGER)
+            ) * 12
+            +
+            (
+                CAST(STRFTIME('%m', 'now') AS INTEGER)
+                -
+                CASE LOWER(SUBSTR(start_part, 1, 3))
+                    WHEN 'jan' THEN 1
+                    WHEN 'feb' THEN 2
+                    WHEN 'mar' THEN 3
+                    WHEN 'apr' THEN 4
+                    WHEN 'may' THEN 5
+                    WHEN 'jun' THEN 6
+                    WHEN 'jul' THEN 7
+                    WHEN 'aug' THEN 8
+                    WHEN 'sep' THEN 9
+                    WHEN 'oct' THEN 10
+                    WHEN 'nov' THEN 11
+                    WHEN 'dec' THEN 12
+                END
+            )
+
+        ELSE
+            (
+                CAST(SUBSTR(end_part, -4) AS INTEGER)
+                -
+                CAST(SUBSTR(start_part, -4) AS INTEGER)
+            ) * 12
+            +
+            (
+                CASE LOWER(SUBSTR(end_part, 1, 3))
+                    WHEN 'jan' THEN 1
+                    WHEN 'feb' THEN 2
+                    WHEN 'mar' THEN 3
+                    WHEN 'apr' THEN 4
+                    WHEN 'may' THEN 5
+                    WHEN 'jun' THEN 6
+                    WHEN 'jul' THEN 7
+                    WHEN 'aug' THEN 8
+                    WHEN 'sep' THEN 9
+                    WHEN 'oct' THEN 10
+                    WHEN 'nov' THEN 11
+                    WHEN 'dec' THEN 12
+                END
+
+                -
+
+                CASE LOWER(SUBSTR(start_part, 1, 3))
+                    WHEN 'jan' THEN 1
+                    WHEN 'feb' THEN 2
+                    WHEN 'mar' THEN 3
+                    WHEN 'apr' THEN 4
+                    WHEN 'may' THEN 5
+                    WHEN 'jun' THEN 6
+                    WHEN 'jul' THEN 7
+                    WHEN 'aug' THEN 8
+                    WHEN 'sep' THEN 9
+                    WHEN 'oct' THEN 10
+                    WHEN 'nov' THEN 11
+                    WHEN 'dec' THEN 12
+                END
+            )
+    END AS duration_months
+
+FROM split_rows
+```
+
+)
+
+SELECT
+ROUND(
+SUM(duration_months) / 12.0,
+2
+) AS total_years_experience
+
+FROM duration_rows w
+
+WHERE EXISTS (
+SELECT 1
+FROM master_df m
+WHERE LOWER(TRIM(m.candidate_name)) =
+LOWER(TRIM('Candidate Name'))
+
+```
+  AND m.screening_header_id =
+      w.screening_header_id
+
+  AND m.requisition_header_id =
+      w.requisition_header_id
+
+  AND m.candidate_line_id =
+      w.candidate_line_id
+```
+
 )
 
 IMPORTANT:
 
-SUM(total_months) is in MONTHS.
+This is the PREFERRED structure.
 
-Therefore, DO NOT return:
-
-ROUND(
-SUM(total_months),
-2
-)
-
-because that would return months while labeling the result
-as years.
-
-The final result MUST be in YEARS.
+The actual SQL may use equivalent CTEs or equivalent
+logic, but it MUST preserve the same behavior.
 
 ============================================================
-MANDATORY TOTAL EXPERIENCE EXAMPLE
+WORK EXPERIENCE JOB TITLE
+=========================
+
+When the user asks:
+
+How many years did Akhil Kotha work as Oracle HCM Consultant?
+
+The requested role refers to:
+
+w.job_title
+
+NOT:
+
+m.requisition_title
+
+Use:
+
+LOWER(TRIM(w.job_title)) =
+LOWER(TRIM('Oracle HCM Consultant'))
+
+Candidate matching:
+
+LOWER(TRIM(m.candidate_name)) =
+LOWER(TRIM('Akhil Kotha'))
+
+============================================================
+WORK EXPERIENCE JOB TITLE FILTER
+================================
+
+When the user asks for experience in a specific
+work-experience role:
+
+filter:
+
+LOWER(TRIM(w.job_title)) =
+LOWER(TRIM('Requested Job Title'))
+
+Do NOT use:
+
+m.requisition_title
+
+to identify the previous/current employment role.
+
+The query should conceptually use:
+
+WITH work_rows AS (
+SELECT DISTINCT
+screening_header_id,
+requisition_header_id,
+candidate_line_id,
+job_title,
+company_name,
+duration
+FROM work_experience_df
+)
+
+Then:
+
+FROM work_rows w
+
+WHERE LOWER(TRIM(w.job_title)) =
+LOWER(TRIM('Requested Job Title'))
+
+AND EXISTS (
+SELECT 1
+FROM master_df m
+WHERE LOWER(TRIM(m.candidate_name)) =
+LOWER(TRIM('Candidate Name'))
+
+```
+  AND m.screening_header_id =
+      w.screening_header_id
+
+  AND m.requisition_header_id =
+      w.requisition_header_id
+
+  AND m.candidate_line_id =
+      w.candidate_line_id
+```
+
+)
+
+============================================================
+WORK EXPERIENCE COMPANY FILTER
+==============================
+
+If the user explicitly asks about a company:
+
+Use:
+
+w.company_name
+
+Match:
+
+LOWER(TRIM(w.company_name)) =
+LOWER(TRIM('Requested Company'))
+
+Example:
+
+How many years did Akhil Kotha work at Nalsoft Middle East?
+
+Use:
+
+LOWER(TRIM(w.company_name)) =
+LOWER(TRIM('Nalsoft Middle East'))
+
+If the user asks for TOTAL work experience across
+all companies:
+
+DO NOT add a company filter unless the user explicitly
+requested one.
+
+============================================================
+WORK EXPERIENCE DETAILS
+=======================
+
+When the user asks:
+
+* give the work experience
+* show work experience
+* list work experience
+* provide employment history
+* show employment history
+
+return individual work-experience records.
+
+Use:
+
+w.job_title
+w.company_name
+w.duration
+
+Do NOT calculate total years unless the user explicitly
+asks for total years.
+
+The returned work-experience records should be unique.
+
+============================================================
+DO NOT USE FIXED POSITIONS ON ORIGINAL DURATION
+===============================================
+
+INVALID:
+
+SUBSTR(TRIM(w.duration), 5, 4)
+
+as the universal start-year parser.
+
+INVALID:
+
+SUBSTR(TRIM(w.duration), -8, 3)
+
+as the universal end-month parser.
+
+These expressions depend on the exact separator and spacing.
+
+Correct approach:
+
+w.duration
+↓
+normalize separator
+↓
+normalized_duration
+↓
+start_part
+↓
+end_part
+↓
+parse month/year
+
+============================================================
+DO NOT USE STRFTIME DIRECTLY ON TEXT
+====================================
+
+INVALID:
+
+strftime('%Y', w.duration)
+
+INVALID:
+
+strftime('%m', w.duration)
+
+INVALID:
+
+strftime('%Y', 'Jun 2018')
+
+INVALID:
+
+strftime('%m', 'Jan 2020')
+
+Use explicit parsing for text month/year values.
+
+Allowed:
+
+strftime('%Y', 'now')
+
+strftime('%m', 'now')
+
+only when processing Present.
+
+============================================================
+DO NOT CAST MONTH NAMES
+=======================
+
+INVALID:
+
+CAST('Jun' AS INTEGER)
+
+INVALID:
+
+CAST('Jan' AS INTEGER)
+
+INVALID:
+
+CAST(w.duration AS INTEGER)
+
+Month names must be converted using CASE.
+
+Correct:
+
+CASE LOWER(SUBSTR(start_part, 1, 3))
+WHEN 'jan' THEN 1
+WHEN 'feb' THEN 2
+WHEN 'mar' THEN 3
+WHEN 'apr' THEN 4
+WHEN 'may' THEN 5
+WHEN 'jun' THEN 6
+WHEN 'jul' THEN 7
+WHEN 'aug' THEN 8
+WHEN 'sep' THEN 9
+WHEN 'oct' THEN 10
+WHEN 'nov' THEN 11
+WHEN 'dec' THEN 12
+END
+
+============================================================
+MANDATORY PRESENT VALIDATION
+============================
+
+For:
+
+Jan 2025 – Present
+
+the SQL MUST:
+
+1. Extract:
+
+Jan 2025
+
+as start_part.
+
+2. Detect:
+
+Present
+
+as end_part.
+
+3. Extract:
+
+start_month = 1
+
+start_year = 2025
+
+4. Use current month/year.
+
+5. Calculate elapsed months.
+
+DO NOT do:
+
+CAST(
+SUBSTR(
+end_part,
+-4
+)
+AS INTEGER
+)
+
+for Present.
+
+============================================================
+MANDATORY MONTH PARSING VALIDATION
 ==================================
+
+For:
+
+Jun 2018 – Jan 2020
+
+after normalization:
+
+Jun 2018|Jan 2020
+
+start_part:
+
+Jun 2018
+
+end_part:
+
+Jan 2020
+
+Then:
+
+LOWER(SUBSTR(start_part, 1, 3))
+
+must produce:
+
+jun
+
+and:
+
+LOWER(SUBSTR(end_part, 1, 3))
+
+must produce:
+
+jan
+
+Therefore:
+
+jun = 6
+
+jan = 1
+
+Then:
+
+(2020 - 2018) * 12 + (1 - 6)
+
+= 19 months
+
+============================================================
+MANDATORY TOTAL EXPERIENCE VALIDATION
+=====================================
 
 Given:
 
 Jan 2025 – Present
-
 Jan 2020 – Dec 2024
-
 Jun 2018 – Jan 2020
 
 If the current month/year is September 2026:
@@ -2980,692 +4368,470 @@ Rounded:
 
 Therefore:
 
-The correct total work experience is 8.17 years.
+8.17 years
 
 ============================================================
-MULTIPLE WORK EXPERIENCE ROWS
-=============================
-
-If multiple work-experience rows match the candidate:
-
-1. Calculate the duration of each row in MONTHS.
-2. SUM all matching months.
-3. Convert the total months to years.
-
-Do NOT:
-
-* convert each row to rounded years first
-* SUM rounded years
-* divide an already rounded value
-
-Correct:
-
-SUM(months) / 12.0
-
-Incorrect:
-
-SUM(rounded_year_values)
-
-============================================================
-WORK EXPERIENCE JOB TITLE
-=========================
-
-When the user asks about experience worked as a specific
-job title, the requested role refers to:
-
-w.job_title
-
-NOT:
-
-m.requisition_title
-
-For example:
-
-User:
-
-How many years did Akhil Kotha work as Oracle HCM Consultant?
-
-The SQL MUST use:
-
-LOWER(TRIM(w.job_title)) =
-LOWER(TRIM('Oracle HCM Consultant'))
-
-The candidate MUST be matched using:
-
-LOWER(TRIM(m.candidate_name)) =
-LOWER(TRIM('Akhil Kotha'))
-
-IMPORTANT:
-
-For work-experience questions:
-
-w.job_title = previous/current job role
-
-m.requisition_title = recruitment requisition title
-
-Do NOT use m.requisition_title to identify the candidate's
-previous work-experience role.
-
-============================================================
-WORK EXPERIENCE JOB TITLE FILTER
-================================
-
-When the user asks for experience in one specific work-
-experience role, prefer filtering w.job_title directly
-in the WHERE clause.
-
-Use:
-
-WHERE LOWER(TRIM(m.candidate_name)) =
-LOWER(TRIM('Candidate Name'))
-
-AND LOWER(TRIM(w.job_title)) =
-LOWER(TRIM('Requested Job Title'))
-
-Example:
-
-WHERE LOWER(TRIM(m.candidate_name)) =
-LOWER(TRIM('Akhil Kotha'))
-
-AND LOWER(TRIM(w.job_title)) =
-LOWER(TRIM('Oracle HCM Consultant'))
-
-Do NOT use:
-
-m.requisition_title
-
-for this filter.
-
-Do NOT put the role condition inside:
-
-SUM(CASE WHEN ... THEN ... ELSE 0 END)
-
-when the user asks about one specific role.
-
-============================================================
-WORK EXPERIENCE COMPANY FILTER
+MANDATORY DUPLICATE VALIDATION
 ==============================
 
-If the user explicitly asks about a company, use:
+Before approving a total work-experience query, verify:
 
-w.company_name
+1. work_experience_df is the main source.
 
-For example:
+2. Unique work-experience rows are created.
 
-How many years did Akhil Kotha work at Nalsoft Middle East?
+3. master_df is used only for candidate verification.
 
-Use:
+4. EXISTS is preferred.
 
-LOWER(TRIM(w.company_name)) =
-LOWER(TRIM('Nalsoft Middle East'))
+5. A duplicate master_df row cannot multiply a
+   work-experience record.
 
-If the user asks for total work experience across all
-companies, DO NOT add a company filter unless the user
-explicitly requested one.
+6. Each unique work-experience record contributes once.
 
 ============================================================
-WORK EXPERIENCE CANDIDATE MATCHING
-==================================
-
-Join:
-
-master_df m
-JOIN work_experience_df w
-
-using:
-
-m.screening_header_id =
-w.screening_header_id
-
-AND
-
-m.requisition_header_id =
-w.requisition_header_id
-
-AND
-
-m.candidate_line_id =
-w.candidate_line_id
-
-Then identify the candidate using:
-
-LOWER(TRIM(m.candidate_name)) =
-LOWER(TRIM('Candidate Name'))
-
-============================================================
-DO NOT USE STRFTIME DIRECTLY ON TEXT DATES
-==========================================
-
-DO NOT use:
-
-strftime('%Y', w.duration)
-
-DO NOT use:
-
-strftime('%m', w.duration)
-
-for values such as:
-
-Jun 2018
-Jan 2020
-
-These are incomplete SQLite dates.
-
-strftime() is allowed only with:
-
-'now'
-
-when calculating the current month/year for Present rows.
-
-============================================================
-MANDATORY VALIDATION EXAMPLE
+NEGATIVE DURATION VALIDATION
 ============================
 
-Given:
+A calculated duration_months must not be negative.
 
-Candidate:
+Valid:
 
-Akhil Kotha
+duration_months >= 0
 
-Job Title:
+If:
 
-Oracle HCM Consultant
+duration_months < 0
 
-Duration:
+the duration is invalid or the query parsed it incorrectly.
 
-Jun 2018 – Jan 2020
-
-The SQL MUST calculate:
-
-Start month = 6
-Start year  = 2018
-
-End month   = 1
-End year    = 2020
-
-Elapsed months:
-
-(2020 - 2018) * 12 + (1 - 6)
-
-= 19 months
-
-Years:
-
-19 / 12.0
-
-= 1.5833...
-
-Rounded:
-
-1.58 years
+Such a query MUST NOT be approved.
 
 ============================================================
-MANDATORY PRESENT VALIDATION EXAMPLE
-====================================
+MALFORMED DURATION VALIDATION
+=============================
 
-Given:
+The SQL must not silently create a huge total from malformed
+duration text.
 
-Duration:
+Examples of suspicious output:
 
-Jan 2025 – Present
+1825.33 years
 
-If current month/year is September 2026:
+500 years
 
-Start month = 1
-Start year  = 2025
+1000 years
 
-Current month = 9
-Current year  = 2026
+or any other value that is clearly inconsistent with the
+candidate's actual work-history records.
 
-Elapsed months:
+The evaluator MUST NOT approve such a result merely because:
 
-(2026 - 2025) * 12 + (9 - 1)
+* the SQL executed
+* the syntax is valid
+* the columns are valid
+* the tables are valid
+* the month CASE statements exist
+* /12.0 exists
 
-= 20 months
-
-Years:
-
-20 / 12.0
-
-= 1.6667...
-
-Rounded:
-
-1.67 years
-
-The SQL MUST include this Present row when calculating
-total work experience.
+The evaluator must inspect the underlying matching
+work-experience rows and their calculated duration_months.
 
 ============================================================
-MANDATORY MONTH PARSING VALIDATION
-==================================
+SUSPICIOUS RESULT VALIDATION
+============================
 
-For:
+When a result appears unusually large:
 
-Jun 2018 – Jan 2020
+inspect the individual work-experience rows.
 
-the SQL MUST interpret:
+Conceptually:
 
-LOWER(SUBSTR(TRIM(w.duration), 1, 3))
+SELECT
+w.job_title,
+w.company_name,
+w.duration
+FROM work_rows w
+WHERE EXISTS (
+SELECT 1
+FROM master_df m
+WHERE LOWER(TRIM(m.candidate_name)) =
+LOWER(TRIM('Candidate Name'))
 
-as:
+```
+  AND m.screening_header_id =
+      w.screening_header_id
 
-jun
+  AND m.requisition_header_id =
+      w.requisition_header_id
 
-and:
+  AND m.candidate_line_id =
+      w.candidate_line_id
+```
 
-LOWER(SUBSTR(TRIM(w.duration), -8, 3))
+)
 
-as:
+The evaluator should inspect:
 
-jan
+* job_title
+* company_name
+* duration
+* parsed start_part
+* parsed end_part
+* start month
+* start year
+* end month
+* end year
+* duration_months
+
+============================================================
+RESULT UNIT
+===========
+
+duration_months is MONTHS.
 
 Therefore:
 
-jun = 6
-jan = 1
+SUM(duration_months)
 
-Then:
+is also MONTHS.
 
-(2020 - 2018) * 12 + (1 - 6)
+The final years calculation MUST be:
 
-= 19 months
+SUM(duration_months) / 12.0
 
-============================================================
-MANDATORY PRESENT VALIDATION
-============================
+For decimal years:
 
-For:
-
-Jan 2025 – Present
-
-the SQL MUST NOT attempt:
-
-CAST(SUBSTR(TRIM(w.duration), -4) AS INTEGER)
-
-because the last four characters are:
-
-sent
-
-or the end portion of Present, not a year.
-
-Instead, when the end is Present, the SQL MUST use:
-
-CAST(STRFTIME('%m', 'now') AS INTEGER)
-
-and:
-
-CAST(STRFTIME('%Y', 'now') AS INTEGER)
-
-============================================================
-MANDATORY SQL STRUCTURE FOR TOTAL EXPERIENCE
-============================================
-
-For a question such as:
-
-Total how many years of work experience did Akhil Kotha have?
-
-the SQL should conceptually follow this structure:
-
-SELECT
 ROUND(
-SUM(
-CASE
-WHEN LOWER(TRIM(w.duration)) LIKE '%present'
-THEN
-(
-CAST(STRFTIME('%Y', 'now') AS INTEGER)
--
-CAST(SUBSTR(TRIM(w.duration), 5, 4) AS INTEGER)
-) * 12
-+
-(
-CAST(STRFTIME('%m', 'now') AS INTEGER)
--
-CASE LOWER(SUBSTR(TRIM(w.duration), 1, 3))
-WHEN 'jan' THEN 1
-WHEN 'feb' THEN 2
-WHEN 'mar' THEN 3
-WHEN 'apr' THEN 4
-WHEN 'may' THEN 5
-WHEN 'jun' THEN 6
-WHEN 'jul' THEN 7
-WHEN 'aug' THEN 8
-WHEN 'sep' THEN 9
-WHEN 'oct' THEN 10
-WHEN 'nov' THEN 11
-WHEN 'dec' THEN 12
-END
+SUM(duration_months) / 12.0,
+2
 )
 
-```
-            ELSE
-                (
-                    CAST(SUBSTR(TRIM(w.duration), -4) AS INTEGER)
-                    -
-                    CAST(SUBSTR(TRIM(w.duration), 5, 4) AS INTEGER)
-                ) * 12
-                +
-                (
-                    CASE LOWER(SUBSTR(TRIM(w.duration), -8, 3))
-                        WHEN 'jan' THEN 1
-                        WHEN 'feb' THEN 2
-                        WHEN 'mar' THEN 3
-                        WHEN 'apr' THEN 4
-                        WHEN 'may' THEN 5
-                        WHEN 'jun' THEN 6
-                        WHEN 'jul' THEN 7
-                        WHEN 'aug' THEN 8
-                        WHEN 'sep' THEN 9
-                        WHEN 'oct' THEN 10
-                        WHEN 'nov' THEN 11
-                        WHEN 'dec' THEN 12
-                    END
-                    -
-                    CASE LOWER(SUBSTR(TRIM(w.duration), 1, 3))
-                        WHEN 'jan' THEN 1
-                        WHEN 'feb' THEN 2
-                        WHEN 'mar' THEN 3
-                        WHEN 'apr' THEN 4
-                        WHEN 'may' THEN 5
-                        WHEN 'jun' THEN 6
-                        WHEN 'jul' THEN 7
-                        WHEN 'aug' THEN 8
-                        WHEN 'sep' THEN 9
-                        WHEN 'oct' THEN 10
-                        WHEN 'nov' THEN 11
-                        WHEN 'dec' THEN 12
-                    END
-                )
-        END
-    ) / 12.0,
-    2
-) AS total_years_experience
-```
+Never return:
 
-FROM master_df m
+ROUND(
+SUM(duration_months),
+2
+)
 
-JOIN work_experience_df w
-ON m.screening_header_id = w.screening_header_id
-AND m.requisition_header_id = w.requisition_header_id
-AND m.candidate_line_id = w.candidate_line_id
-
-WHERE LOWER(TRIM(m.candidate_name)) =
-LOWER(TRIM('Akhil Kotha'))
+when the user asks for years.
 
 ============================================================
-MANDATORY SQL STRUCTURE FOR ROLE-SPECIFIC EXPERIENCE
-====================================================
+INCORRECT QUERY PATTERNS
+========================
 
-For a question such as:
-
-How many years did Akhil Kotha work as Oracle HCM Consultant?
-
-the SQL should:
-
-1. Match the candidate.
-2. Match w.job_title.
-3. Calculate each matching duration in months.
-4. Support Present if applicable.
-5. SUM the months.
-6. Divide by 12.0.
-7. ROUND to 2 decimals.
-
-Use:
-
-WHERE LOWER(TRIM(m.candidate_name)) =
-LOWER(TRIM('Akhil Kotha'))
-
-AND LOWER(TRIM(w.job_title)) =
-LOWER(TRIM('Oracle HCM Consultant'))
-
-============================================================
-INCORRECT SQL PATTERNS
-======================
-
-INCORRECT:
-
-CASE SUBSTR(TRIM(w.duration), 1, 3)
-WHEN 'jan' THEN 1
-WHEN 'feb' THEN 2
-WHEN 'jun' THEN 6
-END
-
-CORRECT:
-
-CASE LOWER(SUBSTR(TRIM(w.duration), 1, 3))
-WHEN 'jan' THEN 1
-WHEN 'feb' THEN 2
-WHEN 'jun' THEN 6
-END
-
----
-
-INCORRECT:
-
-CASE SUBSTR(TRIM(w.duration), -8, 3)
-WHEN 'jan' THEN 1
-WHEN 'feb' THEN 2
-WHEN 'jun' THEN 6
-END
-
-CORRECT:
-
-CASE LOWER(SUBSTR(TRIM(w.duration), -8, 3))
-WHEN 'jan' THEN 1
-WHEN 'feb' THEN 2
-WHEN 'jun' THEN 6
-END
-
----
-
-INCORRECT:
-
-LOWER(m.requisition_title) =
-LOWER(TRIM('Oracle HCM Consultant'))
-
-CORRECT:
-
-LOWER(TRIM(w.job_title)) =
-LOWER(TRIM('Oracle HCM Consultant'))
-
----
-
-INCORRECT:
+INVALID:
 
 CAST(w.duration AS INTEGER)
 
-CORRECT:
-
-Explicitly parse start month, start year, end month,
-and end year from w.duration.
-
 ---
 
-INCORRECT:
-
-CAST(SUBSTR(TRIM(w.duration), -4) AS INTEGER)
-
-for:
-
-Jan 2025 – Present
-
-CORRECT:
-
-For Present rows use:
-
-CAST(STRFTIME('%Y', 'now') AS INTEGER)
-
-for the end year and:
-
-CAST(STRFTIME('%m', 'now') AS INTEGER)
-
-for the end month.
-
----
-
-INCORRECT:
+INVALID:
 
 strftime('%Y', w.duration)
 
-CORRECT:
+---
 
-Use explicit year extraction from w.duration.
+INVALID:
+
+strftime('%m', w.duration)
 
 ---
 
-INCORRECT:
+INVALID:
 
-ROUND(SUM(total_months), 2)
+CASE SUBSTR(...)
 
-when the requested output is years.
+when comparing lowercase month names.
+
+---
 
 CORRECT:
 
-ROUND(SUM(total_months) / 12.0, 2)
+CASE LOWER(SUBSTR(...))
+
+---
+
+INVALID:
+
+m.requisition_title
+
+for identifying the candidate's previous employment role.
+
+---
+
+CORRECT:
+
+w.job_title
+
+---
+
+INVALID:
+
+SUM(months) without dividing by 12.0
+
+when years are requested.
+
+---
+
+CORRECT:
+
+SUM(months) / 12.0
+
+---
+
+INVALID:
+
+ROUND(
+SUM(months),
+2
+)
+
+when years are requested.
+
+---
+
+CORRECT:
+
+ROUND(
+SUM(months) / 12.0,
+2
+)
+
+---
+
+INVALID:
+
+master_df m
+JOIN work_experience_df w
+ON ...
+
+followed directly by:
+
+SUM(duration_calculation)
+
+when duplicate master rows may multiply work rows.
+
+---
+
+CORRECT:
+
+DISTINCT work_rows
+
+plus:
+
+EXISTS
+
+for candidate verification.
 
 ============================================================
-FINAL WORK EXPERIENCE RULE
-==========================
+FINAL WORK EXPERIENCE RULES
+===========================
 
 When answering work-experience duration questions:
 
 1. Use work_experience_df.
 
-2. Join work_experience_df to master_df using:
+2. Make work_experience_df the primary table.
 
-   screening_header_id
-   requisition_header_id
-   candidate_line_id
+3. Create UNIQUE work-experience rows.
 
-3. Match the candidate using:
+4. Normalize the duration separator.
 
-   LOWER(TRIM(m.candidate_name))
+5. Extract start_part.
 
-4. When a specific previous/current role is requested,
-   match:
+6. Extract end_part.
 
-   LOWER(TRIM(w.job_title))
+7. Parse start month/year from start_part.
 
-5. When a specific company is requested, match:
+8. Detect Present from end_part.
 
-   LOWER(TRIM(w.company_name))
+9. If Present, use current month/year.
 
-6. Parse the start month, start year, end month and end
-   year from w.duration.
+10. Otherwise parse end month/year from end_part.
 
-7. Month extraction MUST use:
+11. Use LOWER() for month matching.
 
-   LOWER(SUBSTR(...))
+12. Convert months with CASE.
 
-8. Convert month names to month numbers using CASE.
+13. Calculate each duration in MONTHS.
 
-9. If the row ends with Present, use the current month
-   and current year.
+14. Verify candidate membership using EXISTS.
 
-10. Calculate the duration of every matching row in MONTHS.
+15. Do not allow master_df duplicates to multiply durations.
 
-11. SUM all matching months.
+16. SUM unique months.
 
-12. Convert total months to years using:
+17. Divide total months by 12.0.
 
-    total_months / 12.0
+18. ROUND the final years value to 2 decimals.
 
-13. Use:
+19. Use w.job_title for work roles.
 
-    ROUND(..., 2)
+20. Use w.company_name for company-specific questions.
 
-    when the requested output is decimal years.
+21. Use m.candidate_name for candidate identification.
 
-14. NEVER treat w.duration as a numeric value.
+22. Do not use m.requisition_title as the candidate's
+    previous work role.
 
-15. NEVER directly CAST month names such as Jun or Jan
-    to INTEGER.
+23. Do not use strftime() directly on text month/year values.
 
-16. NEVER use strftime() directly on:
+24. Do not cast w.duration directly to INTEGER.
 
-    Jun 2018
-    Jan 2020
+25. Do not cast month names directly to INTEGER.
 
-17. strftime() may be used with 'now' for Present rows.
+26. Do not ignore Present rows.
 
-18. NEVER use case-sensitive month matching such as:
+27. Do not silently accept negative durations.
 
-    CASE SUBSTR(...)
+28. Do not silently accept obviously malformed duration
+    values.
 
-19. ALWAYS use:
+29. Do not count the same unique work-experience record more
+    than once.
 
-    CASE LOWER(SUBSTR(...))
-
-20. NEVER use m.requisition_title as the candidate's
-    previous work-experience role.
-
-21. NEVER drop a Present row from total experience.
-
-22. NEVER return months as years.
-
-23. ALWAYS divide total months by 12.0 before returning
-    total years.
-
-24. When multiple experience rows match, SUM MONTHS first,
-    then convert to YEARS.
+30. Do not return months while labeling them as years.
 
 ============================================================
-FINAL VALIDATION BEFORE RETURNING SQL
-=====================================
+MANDATORY FINAL SQL CHECK
+=========================
 
-Before returning SQL, verify that:
+Before returning SQL, verify:
 
-* the candidate is matched correctly
-* the correct work-experience table is used
-* the join keys are correct
-* w.job_title is used for previous/current work roles
-* w.company_name is used when a company is explicitly requested
-* w.duration is parsed correctly
-* start month is normalized using LOWER()
-* end month is normalized using LOWER()
-* start year is extracted correctly
-* completed end year is extracted correctly
-* Present rows use the current month/year
-* Present rows are not ignored
-* elapsed months are calculated correctly
-* multiple rows are summed in MONTHS
+* candidate is correct
+* work_experience_df is used
+* work rows are unique
+* candidate relationship is correct
+* screening_header_id is correct
+* requisition_header_id is correct
+* candidate_line_id is correct
+* EXISTS is used when appropriate
+* no duplicate master rows can multiply work rows
+* duration separator is normalized
+* start_part is extracted
+* end_part is extracted
+* start month is parsed
+* start year is parsed
+* Present is detected correctly
+* completed end month is parsed
+* completed end year is parsed
+* LOWER() is used for month matching
+* CASE is used for month-number conversion
+* completed months are calculated correctly
+* Present months are calculated correctly
+* Present rows are included
+* duration_months is non-negative
+* multiple rows are summed in months
 * total months are divided by 12.0
-* ROUND(..., 2) is applied to the final years value
-* the SQL does not return months while labeling them as years
-* the SQL does not use CAST(w.duration AS INTEGER)
-* the SQL does not CAST Jun or Jan directly to INTEGER
-* the SQL does not use strftime() directly on Jun 2018 or Jan 2020
-* the SQL does not use CASE SUBSTR(...) for month matching
-* the SQL uses CASE LOWER(SUBSTR(...))
-* the SQL does not use m.requisition_title for work-experience roles
-* the SQL does not return 0 or NULL because of failed duration parsing
-* the SQL does not exclude valid Present experience
+* final value is rounded to 2 decimals
+* final value is YEARS
+* w.job_title is used for role-specific experience
+* w.company_name is used for company-specific experience
+* m.requisition_title is not used as previous employment role
+* strftime() is not applied directly to text durations
+* duration is not directly CAST to INTEGER
+* month names are not directly CAST to INTEGER
+* fixed-position parsing is not blindly applied to original
+  w.duration
+* duplicate-prone JOIN aggregation is avoided
+* suspiciously large results are not automatically approved
 
-For:
+============================================================
+EVALUATOR RULE
+==============
 
-Jun 2018 – Jan 2020
+The evaluator MUST evaluate both:
 
-the correct duration is:
+1. SQL correctness
+2. Numerical result correctness
 
-19 months
+A query is NOT correct merely because it executes.
 
-or:
+The evaluator MUST reject a work-experience query when:
 
-1.58 years
+* duration parsing is incorrect
+* Present is lost
+* month parsing fails
+* duplicate work rows are counted
+* candidate matching is incorrect
+* total months are not converted to years
+* the result is clearly abnormal because of parsing or
+  duplication
+* a malformed duration produces an unrealistic total
 
-For:
+For example:
 
-Jan 2025 – Present
+1825.33 years
 
-the duration must be calculated using the current month
-and current year.
+MUST NOT be automatically approved.
 
-For total work experience:
+The evaluator must inspect the matching work-experience
+records and verify the calculated duration_months values.
 
-SUM(all matching months) / 12.0
+============================================================
+FINAL CONCEPTUAL FLOW
+=====================
 
-# must be used before returning years.
+For TOTAL work experience:
+
+work_experience_df
+↓
+SELECT DISTINCT work rows
+↓
+normalize duration separator
+↓
+extract start_part
+↓
+extract end_part
+↓
+parse start month/year
+↓
+detect Present
+↓
+parse end month/year OR use current month/year
+↓
+calculate duration_months
+↓
+EXISTS candidate verification
+↓
+SUM unique duration_months
+↓
+divide by 12.0
+↓
+ROUND(..., 2)
+↓
+TOTAL YEARS
+
+============================================================
+FINAL INSTRUCTION
+=================
+
+Generate SQL that answers the user's actual work-experience
+question using only the available HR data.
+
+Do not invent:
+
+* candidate names
+* job titles
+* companies
+* requisition numbers
+* durations
+* tables
+* columns
+
+For work-experience duration questions, the SQL must calculate
+the result from the candidate's actual UNIQUE work-experience
+records.
+
+Correctness of the numerical result is required.
+
+A query that executes successfully but returns an incorrect
+work-experience total is INVALID.
+
+============================================================
+
+
 
 ============================================================
 WHEN BOTH TABLES ARE REQUIRED
@@ -3860,8 +5026,180 @@ Rules:
 
 12. Requisition phase questions must use requisition_phase_name.
 
-13. Candidate application status must use
+13. 13. Candidate application status must use
     candidate_public_state_name.
+
+    The user's wording does not have to exactly match the
+    value stored in candidate_public_state_name.
+
+    Evaluate the meaning of the user's requested application
+    status and map it to the correct canonical Oracle HCM state.
+
+    --------------------------------------------------------
+    CANONICAL CANDIDATE APPLICATION STATES
+    --------------------------------------------------------
+
+    1. "1st Level Interview Scheduled"
+
+    Possible user wording:
+    - first level interview scheduled
+    - 1st level interview is scheduled
+    - first interview scheduled
+
+    Canonical state:
+    "1st Level Interview Scheduled"
+
+
+    2. "1st level Interview to be Scheduled"
+
+    Possible user wording:
+    - first level interview to be scheduled
+    - first level interview needs to be scheduled
+    - waiting for first level interview
+    - first interview needs scheduling
+
+    Canonical state:
+    "1st level Interview to be Scheduled"
+
+
+    3. "Selected for Offer"
+
+    Possible user wording:
+    - selected for offer
+    - candidate selected for offer
+    - selected to receive offer
+    - offer selected
+
+    Canonical state:
+    "Selected for Offer"
+
+
+    4. "Rejected by Employer"
+
+    Possible user wording:
+    - rejected by employer
+    - employer rejected
+    - candidate was rejected
+    - rejected candidate
+
+    Canonical state:
+    "Rejected by Employer"
+
+
+    5. "2nd Level Interview to be Scheduled"
+
+    Possible user wording:
+    - 2nd level interview to be scheduled
+    - second level interview to be scheduled
+    - second level interview needs to be scheduled
+    - waiting for second level interview
+    - candidates waiting for second interview
+
+    Canonical state:
+    "2nd Level Interview to be Scheduled"
+
+
+    6. "2nd Level Interview Scheduled"
+
+    Possible user wording:
+    - 2nd level interview scheduled
+    - second level interview scheduled
+    - second interview is scheduled
+
+    Canonical state:
+    "2nd Level Interview Scheduled"
+
+
+    7. "2nd Level Interview Completed"
+
+    Possible user wording:
+    - 2nd level interview completed
+    - second level interview completed
+    - second interview completed
+    - finished second level interview
+    - completed second interview
+
+    Canonical state:
+    "2nd Level Interview Completed"
+
+
+    8. "To be Created"
+
+    Possible user wording:
+    - to be created
+    - candidate record to be created
+    - waiting to be created
+
+    Canonical state:
+    "To be Created"
+
+
+    9. "Screening Completed"
+
+    Possible user wording:
+    - screening completed
+    - completed screening
+    - screening is complete
+    - finished screening
+    - screening finished
+    - done with screening
+
+    Canonical state:
+    "Screening Completed"
+
+
+    --------------------------------------------------------
+    IMPORTANT EVALUATION RULE
+    --------------------------------------------------------
+
+    Do not reject SQL merely because the user's wording
+    differs from the canonical state name.
+
+    Example:
+
+    User question:
+    "give me candidates whose completed screening
+     in Oracle HCM Functional Specialist"
+
+    Correct interpretation:
+
+    candidate_public_state_name =
+    "Screening Completed"
+
+    Therefore this SQL is CORRECT:
+
+    LOWER(m.candidate_public_state_name) =
+    LOWER('Screening Completed')
+
+
+    Another example:
+
+    User question:
+    "give me candidates whose 2nd level interview
+     to be scheduled"
+
+    Correct interpretation:
+
+    candidate_public_state_name =
+    "2nd Level Interview to be Scheduled"
+
+    Therefore this SQL is CORRECT:
+
+    LOWER(m.candidate_public_state_name) =
+    LOWER('2nd Level Interview to be Scheduled')
+
+
+    --------------------------------------------------------
+    IMPORTANT
+    --------------------------------------------------------
+
+    The evaluator must evaluate the USER'S INTENDED MEANING,
+    not simply compare the generated SQL text with the exact
+    words used by the user.
+
+    If the generated SQL uses the correct canonical state
+    corresponding to the user's intended meaning,
+    approve the SQL.
 
 14. AI score must use screening_ai_score.
 
