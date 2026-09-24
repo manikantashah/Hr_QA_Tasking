@@ -10597,7 +10597,6 @@ def email_flow(
 def linkedin_job_desc_flow(
     state: TaskState
 ):
-    
 
     print(
         "\n========================================"
@@ -13317,27 +13316,6 @@ def marketing_intelligence_hr(
         )
 
     # ========================================================
-    # 20C. CONVERT TO STRING WITHOUT CURLY BRACES
-    # ========================================================
-
-    if isinstance(
-        marketing_output_parsed,
-        dict
-    ):
-
-        marketing_output_text = ",\n".join(
-            f'"{key}": "{value}"'
-            for key, value
-            in marketing_output_parsed.items()
-        )
-
-    else:
-
-        marketing_output_text = str(
-            marketing_output_parsed
-        )
-
-    # ========================================================
     # 21. RETURN FINAL RESULT
     # ========================================================
 
@@ -13362,11 +13340,12 @@ def marketing_intelligence_hr(
             None,
 
         "result_summary":
-            marketing_output_text,
+            marketing_output_parsed,
 
         "final_response":
             marketing_intelligence_result
     }
+
 # ============================================================
 # MAIN ORCHESTRATOR
 # ============================================================
