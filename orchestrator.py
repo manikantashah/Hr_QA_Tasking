@@ -13275,6 +13275,7 @@ def marketing_intelligence_hr(
                     f"{str(e)}"
                 )
         }
+    
 
     # ========================================================
     # 20. PRINT RESULT
@@ -13301,6 +13302,54 @@ def marketing_intelligence_hr(
     )
 
     # ========================================================
+    # 20A. GET MARKETING OUTPUT
+    # ========================================================
+
+    marketing_output = (
+        marketing_intelligence_result.get(
+            "output",
+            ""
+        )
+    )
+
+    # ========================================================
+    # 20B. PARSE MARKETING OUTPUT
+    #
+    # MARKETINGINTELLIGENCEHR returns output as a JSON string.
+    #
+    # Example:
+    #
+    # "{ \"Average Time To Fill\": \"45 - 60 days\", ... }"
+    #
+    # Convert that string into a Python dictionary.
+    # ========================================================
+
+    if isinstance(
+        marketing_output,
+        str
+    ):
+
+        try:
+
+            marketing_output_parsed = json.loads(
+                marketing_output
+            )
+
+        except (
+            json.JSONDecodeError
+        ):
+
+            marketing_output_parsed = (
+                marketing_output
+            )
+
+    else:
+
+        marketing_output_parsed = (
+            marketing_output
+        )
+
+    # ========================================================
     # 21. RETURN FINAL RESULT
     # ========================================================
 
@@ -13325,14 +13374,12 @@ def marketing_intelligence_hr(
             None,
 
         "result_summary":
-            marketing_intelligence_result.get(
-                "output",
-                ""
-            ),
+            marketing_output_parsed,
 
         "final_response":
             marketing_intelligence_result
     }
+
 
 # ============================================================
 # MAIN ORCHESTRATOR
