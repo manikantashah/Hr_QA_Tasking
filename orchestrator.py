@@ -13277,7 +13277,7 @@ def marketing_intelligence_hr(
         }
         
 
-    # ========================================================
+        # ========================================================
     # 20A. GET MARKETING OUTPUT
     # ========================================================
 
@@ -13289,7 +13289,7 @@ def marketing_intelligence_hr(
     )
 
     # ========================================================
-    # 20B. REMOVE ONLY OUTER CURLY BRACES
+    # 20B. PARSE MARKETING OUTPUT
     # ========================================================
 
     if isinstance(
@@ -13297,21 +13297,23 @@ def marketing_intelligence_hr(
         str
     ):
 
-        marketing_output = (
-            marketing_output
-            .strip()
-        )
+        try:
 
-        if (
-            marketing_output.startswith("{")
-            and
-            marketing_output.endswith("}")
-        ):
-
-            marketing_output = (
-                marketing_output[1:-1]
-                .strip()
+            marketing_output_parsed = json.loads(
+                marketing_output
             )
+
+        except json.JSONDecodeError:
+
+            marketing_output_parsed = (
+                marketing_output
+            )
+
+    else:
+
+        marketing_output_parsed = (
+            marketing_output
+        )
 
     # ========================================================
     # 21. RETURN FINAL RESULT
@@ -13338,10 +13340,10 @@ def marketing_intelligence_hr(
             None,
 
         "result_summary":
-            marketing_output,
+            marketing_output_parsed,
 
         "final_response":
-            marketing_output
+            marketing_intelligence_result
     }
 
 # ============================================================
