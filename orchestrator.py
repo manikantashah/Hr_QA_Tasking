@@ -13277,7 +13277,7 @@ def marketing_intelligence_hr(
         }
         
 
-        # ========================================================
+    # ========================================================
     # 20A. GET MARKETING OUTPUT
     # ========================================================
 
@@ -13289,7 +13289,7 @@ def marketing_intelligence_hr(
     )
 
     # ========================================================
-    # 20B. PARSE MARKETING OUTPUT
+    # 20B. REMOVE ONLY OUTER CURLY BRACES
     # ========================================================
 
     if isinstance(
@@ -13297,67 +13297,25 @@ def marketing_intelligence_hr(
         str
     ):
 
-        try:
-
-            marketing_output_parsed = json.loads(
-                marketing_output
-            )
-
-        except json.JSONDecodeError:
-
-            marketing_output_parsed = (
-                marketing_output
-            )
-
-    else:
-
-        marketing_output_parsed = (
+        marketing_output = (
             marketing_output
+            .strip()
         )
+
+        if (
+            marketing_output.startswith("{")
+            and
+            marketing_output.endswith("}")
+        ):
+
+            marketing_output = (
+                marketing_output[1:-1]
+                .strip()
+            )
 
     # ========================================================
     # 21. RETURN FINAL RESULT
     # ========================================================
-
-    marketing_output = (
-        marketing_intelligence_result.get(
-            "output",
-            ""
-        )
-    )
-
-    # --------------------------------------------------------
-    # Marketing Intelligence output is JSON text.
-    # Remove only the outer { } so result_summary
-    # becomes a string like the Interview Questions output.
-    # --------------------------------------------------------
-
-    if isinstance(
-        marketing_output,
-        str
-    ):
-
-        try:
-
-            marketing_output_dict = json.loads(
-                marketing_output
-            )
-
-            marketing_output = (
-                json.dumps(
-                    marketing_output_dict,
-                    indent=4,
-                    ensure_ascii=False
-                )[1:-1]
-                .strip()
-            )
-
-        except json.JSONDecodeError:
-
-            marketing_output = (
-                marketing_output
-                .strip()
-            )
 
     return {
 
@@ -13383,8 +13341,9 @@ def marketing_intelligence_hr(
             marketing_output,
 
         "final_response":
-            marketing_intelligence_result
+            marketing_output
     }
+
 # ============================================================
 # MAIN ORCHESTRATOR
 # ============================================================
