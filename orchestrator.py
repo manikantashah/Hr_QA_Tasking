@@ -13277,31 +13277,7 @@ def marketing_intelligence_hr(
         }
         
 
-    # ========================================================
-    # 20. PRINT RESULT
-    # ========================================================
-
-    print(
-        "\n========================================"
-    )
-
-    print(
-        "MARKETINGINTELLIGENCEHR RESULT"
-    )
-
-    print(
-        "========================================"
-    )
-
-    print(
-        json.dumps(
-            marketing_intelligence_result,
-            indent=4,
-            default=str
-        )
-    )
-
-    # ========================================================
+        # ========================================================
     # 20A. GET MARKETING OUTPUT
     # ========================================================
 
@@ -13314,27 +13290,30 @@ def marketing_intelligence_hr(
 
     # ========================================================
     # 20B. PARSE MARKETING OUTPUT
-    #
-    # MARKETINGINTELLIGENCEHR returns output as a JSON string.
-    #
-    # Example:
-    #
-    # "{ \"Average Time To Fill\": \"45 - 60 days\", ... }"
-    #
-    # Convert that string into a Python dictionary.
     # ========================================================
 
     if isinstance(
         marketing_output,
         str
-    ) and marketing_output.strip().startswith("{") and marketing_output.strip().endswith("}"):
-        marketing_output = (
-        marketing_output
-        .strip()[1:-1]
-        .strip()
-    )
+    ):
 
-        
+        try:
+
+            marketing_output_parsed = json.loads(
+                marketing_output
+            )
+
+        except json.JSONDecodeError:
+
+            marketing_output_parsed = (
+                marketing_output
+            )
+
+    else:
+
+        marketing_output_parsed = (
+            marketing_output
+        )
 
     # ========================================================
     # 21. RETURN FINAL RESULT
@@ -13342,30 +13321,30 @@ def marketing_intelligence_hr(
 
     return {
 
-    "marketing_intelligence_result":
-        marketing_intelligence_result,
+        "marketing_intelligence_result":
+            marketing_intelligence_result,
 
-    "requisition_number":
-        requisition_number,
+        "requisition_number":
+            requisition_number,
 
-    "title_name":
-        title_name,
+        "title_name":
+            title_name,
 
-    "waiting_for_user":
-        False,
+        "waiting_for_user":
+            False,
 
-    "awaiting_confirmation":
-        False,
+        "awaiting_confirmation":
+            False,
 
-    "confirmation_type":
-        None,
+        "confirmation_type":
+            None,
 
-    "result_summary":
-        marketing_output,
+        "result_summary":
+            marketing_output_parsed,
 
-    "final_response":
-        marketing_intelligence_result
-}
+        "final_response":
+            marketing_intelligence_result
+    }
 
 # ============================================================
 # MAIN ORCHESTRATOR
