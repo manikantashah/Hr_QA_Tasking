@@ -13319,6 +13319,46 @@ def marketing_intelligence_hr(
     # 21. RETURN FINAL RESULT
     # ========================================================
 
+    marketing_output = (
+        marketing_intelligence_result.get(
+            "output",
+            ""
+        )
+    )
+
+    # --------------------------------------------------------
+    # Marketing Intelligence output is JSON text.
+    # Remove only the outer { } so result_summary
+    # becomes a string like the Interview Questions output.
+    # --------------------------------------------------------
+
+    if isinstance(
+        marketing_output,
+        str
+    ):
+
+        try:
+
+            marketing_output_dict = json.loads(
+                marketing_output
+            )
+
+            marketing_output = (
+                json.dumps(
+                    marketing_output_dict,
+                    indent=4,
+                    ensure_ascii=False
+                )[1:-1]
+                .strip()
+            )
+
+        except json.JSONDecodeError:
+
+            marketing_output = (
+                marketing_output
+                .strip()
+            )
+
     return {
 
         "marketing_intelligence_result":
@@ -13340,12 +13380,11 @@ def marketing_intelligence_hr(
             None,
 
         "result_summary":
-            marketing_output_parsed,
+            marketing_output,
 
         "final_response":
             marketing_intelligence_result
     }
-
 # ============================================================
 # MAIN ORCHESTRATOR
 # ============================================================
