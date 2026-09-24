@@ -13275,7 +13275,7 @@ def marketing_intelligence_hr(
                     f"{str(e)}"
                 )
         }
-    
+        
 
     # ========================================================
     # 20. PRINT RESULT
@@ -13327,27 +13327,14 @@ def marketing_intelligence_hr(
     if isinstance(
         marketing_output,
         str
-    ):
+    ) and marketing_output.strip().startswith("{") and marketing_output.strip().endswith("}"):
+        marketing_output = (
+        marketing_output
+        .strip()[1:-1]
+        .strip()
+    )
 
-        try:
-
-            marketing_output_parsed = json.loads(
-                marketing_output
-            )
-
-        except (
-            json.JSONDecodeError
-        ):
-
-            marketing_output_parsed = (
-                marketing_output
-            )
-
-    else:
-
-        marketing_output_parsed = (
-            marketing_output
-        )
+        
 
     # ========================================================
     # 21. RETURN FINAL RESULT
@@ -13355,31 +13342,30 @@ def marketing_intelligence_hr(
 
     return {
 
-        "marketing_intelligence_result":
-            marketing_intelligence_result,
+    "marketing_intelligence_result":
+        marketing_intelligence_result,
 
-        "requisition_number":
-            requisition_number,
+    "requisition_number":
+        requisition_number,
 
-        "title_name":
-            title_name,
+    "title_name":
+        title_name,
 
-        "waiting_for_user":
-            False,
+    "waiting_for_user":
+        False,
 
-        "awaiting_confirmation":
-            False,
+    "awaiting_confirmation":
+        False,
 
-        "confirmation_type":
-            None,
+    "confirmation_type":
+        None,
 
-        "result_summary":
-            marketing_output_parsed,
+    "result_summary":
+        marketing_output,
 
-        "final_response":
-            marketing_intelligence_result
-    }
-
+    "final_response":
+        marketing_intelligence_result
+}
 
 # ============================================================
 # MAIN ORCHESTRATOR
