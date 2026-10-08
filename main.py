@@ -2704,6 +2704,309 @@ Use:
 
 m.requisition_phase_name
 
+
+============================================================
+REQUISITION STATE NATURAL LANGUAGE MAPPING
+============================================================
+
+Use:
+
+m.requisition_state_name
+
+Canonical state values:
+
+- In Progress
+- Not Posted
+- Unposted
+- Posted
+
+The user's wording may be different from the exact
+database value. Always map the user's meaning to the
+canonical state value.
+
+------------------------------------------------------------
+POSTED
+------------------------------------------------------------
+
+These all mean:
+
+m.requisition_state_name = 'Posted'
+
+Examples:
+
+"list all the requisitions that are posted"
+
+"list all the requisitions that are stated as posted"
+
+"list all posted requisitions"
+
+
+
+"which requisitions are posted"
+
+"show me the posted requisitions"
+
+------------------------------------------------------------
+UNPOSTED
+------------------------------------------------------------
+
+These all mean:
+
+m.requisition_state_name = 'Unposted'
+
+Examples:
+
+"list all the requisitions that are unposted"
+
+"list all the requisitions that are un posted"
+
+"which requisitions are unposted"
+
+"which requisitions are un posted"
+
+"show me the unposted requisitions"
+
+------------------------------------------------------------
+NOT POSTED
+------------------------------------------------------------
+
+These all mean:
+
+m.requisition_state_name = 'Not Posted'
+
+Examples:
+
+"list all the requisitions that are not posted"
+
+"which requisitions are not posted"
+
+"show me requisitions that are not posted"
+
+"list all not posted requisitions"
+
+IMPORTANT:
+
+"unposted" and "not posted" are different canonical
+database values.
+
+Unposted:
+
+m.requisition_state_name = 'Unposted'
+
+Not posted:
+
+m.requisition_state_name = 'Not Posted'
+
+Do not change one into the other.
+
+------------------------------------------------------------
+IN PROGRESS
+------------------------------------------------------------
+
+These all mean:
+
+m.requisition_state_name = 'In Progress'
+
+Examples:
+
+"list all the requisitions that are in progress"
+
+"which requisitions are in progress"
+
+"show me requisitions that are in progress"
+
+"list all in progress requisitions"
+
+============================================================
+REQUISITION PHASE
+============================================================
+
+Use:
+
+m.requisition_phase_name
+
+Canonical phase values:
+
+- Draft
+- Open
+
+------------------------------------------------------------
+OPEN
+------------------------------------------------------------
+
+These all mean:
+
+m.requisition_phase_name = 'Open'
+
+Examples:
+
+"list all the requisitions that are open"
+
+"which requisitions are open"
+
+"show me open requisitions"
+
+"list all open requisitions"
+
+------------------------------------------------------------
+DRAFT
+------------------------------------------------------------
+
+These all mean:
+
+m.requisition_phase_name = 'Draft'
+
+Examples:
+
+"list all the requisitions that are draft"
+
+"which requisitions are draft"
+
+"show me draft requisitions"
+
+"list all draft requisitions"
+
+============================================================
+IMPORTANT FIELD SELECTION RULE
+============================================================
+
+Use m.requisition_state_name when the user asks about:
+
+- posted
+- unposted
+- not posted
+- in progress
+- status
+- state
+
+Use m.requisition_phase_name when the user asks about:
+
+- open
+- draft
+- phase
+
+Do not use requisition_state_name for "open" or "draft".
+
+Do not use requisition_phase_name for "posted",
+"unposted", "not posted", or "in progress".
+
+============================================================
+MULTIPLE REQUISITION CONDITIONS
+============================================================
+
+If the user asks for both a phase and a state,
+apply BOTH conditions using AND.
+
+Example:
+
+"which requisitions are open and posted?"
+
+Use:
+
+m.requisition_phase_name = 'Open'
+AND
+m.requisition_state_name = 'Posted'
+
+Example:
+
+"show me open and posted requisitions"
+
+Use:
+
+m.requisition_phase_name = 'Open'
+AND
+m.requisition_state_name = 'Posted'
+
+Example:
+
+"which requisitions are draft and not posted?"
+
+Use:
+
+m.requisition_phase_name = 'Draft'
+AND
+m.requisition_state_name = 'Not Posted'
+
+Example:
+
+"show me draft and unposted requisitions"
+
+Use:
+
+m.requisition_phase_name = 'Draft'
+AND
+m.requisition_state_name = 'Unposted'
+
+IMPORTANT:
+
+When the user asks only for a state, use only
+m.requisition_state_name.
+
+When the user asks only for a phase, use only
+m.requisition_phase_name.
+
+When the user asks for both, use both fields with AND.
+
+============================================================
+CASE SENSITIVITY RULE
+============================================================
+
+Be consistent when using LOWER().
+
+NEVER do this:
+
+LOWER(column_name) = 'Canonical Value'
+
+because LOWER(column_name) converts the column value to
+lowercase while the right-hand side remains unchanged.
+
+WRONG:
+
+LOWER(m.requisition_state_name) = 'Posted'
+
+WRONG:
+
+LOWER(m.requisition_phase_name) = 'Open'
+
+WRONG:
+
+LOWER(m.candidate_public_state_name) = 'Screening Completed'
+
+
+If LOWER() is used, apply it to BOTH sides.
+
+CORRECT:
+
+LOWER(m.requisition_state_name) = LOWER('Posted')
+
+CORRECT:
+
+LOWER(m.requisition_phase_name) = LOWER('Open')
+
+CORRECT:
+
+LOWER(m.candidate_public_state_name) = LOWER('Screening Completed')
+
+
+For canonical Oracle HCM values, direct equality is preferred
+when the canonical value is already known.
+
+PREFERRED:
+
+m.requisition_state_name = 'Posted'
+
+m.requisition_state_name = 'Unposted'
+
+m.requisition_state_name = 'Not Posted'
+
+m.requisition_state_name = 'In Progress'
+
+m.requisition_phase_name = 'Open'
+
+m.requisition_phase_name = 'Draft'
+
+m.candidate_public_state_name = 'Screening Completed'
+
 ============================================================
 WORK EXPERIENCE
 ============================================================
@@ -5430,6 +5733,32 @@ A query that returns:
 NULL
 or another value because the month parsing failed
 must NOT be approved.
+
+============================================================
+CASE NORMALIZATION VALIDATION
+============================================================
+
+Reject SQL when LOWER() is applied to only one side of an
+equality comparison.
+
+INVALID:
+
+LOWER(column) = 'Value'
+
+VALID:
+
+column = 'Value'
+
+VALID:
+
+LOWER(column) = LOWER('Value')
+
+If the SQL contains:
+
+LOWER(m.requisition_state_name) = 'Posted'
+
+the SQL must be rejected because the comparison is
+case-inconsistent.
 
 ============================================================
 FINAL EVALUATION RULE
