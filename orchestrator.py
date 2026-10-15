@@ -8129,142 +8129,86 @@ def screening_flow(
     }
 
 
+
 # ============================================================
 # EXTRACT EMAIL CONTENT
 # ============================================================
 
-def extract_email_content(
-    agent_result
-):
+def extract_email_content(agent_result):
 
-    if not isinstance(
-        agent_result,
-        dict
-    ):
-
+    if not isinstance(agent_result, dict):
         return {}
 
-    output = agent_result.get(
-        "output"
-    )
+    # Get the Agent Studio output
+    output = agent_result.get("output")
 
     if not output:
         return {}
 
-    if isinstance(
-        output,
-        str
-    ):
+    # Parse output when it is a JSON string
+    if isinstance(output, str):
+        output = safe_json_loads(output)
 
-        output = safe_json_loads(
-            output
-        )
-
-        if output is None:
-            return {}
-
-    if not isinstance(
-        output,
-        dict
-    ):
-
+    if not isinstance(output, dict):
         return {}
 
-    result = output.get(
-        "result",
-        {}
-    )
+    # Extract result
+    result = output.get("result", output)
 
-    if isinstance(
-        result,
-        str
-    ):
+    if isinstance(result, str):
+        result = safe_json_loads(result)
 
-        result = safe_json_loads(
-            result
-        )
-
-        if result is None:
-            return {}
-
-    if not isinstance(
-        result,
-        dict
-    ):
-
+    if not isinstance(result, dict):
         return {}
 
-    nested_result = result.get(
-        "result",
-        result
-    )
+    # Handle nested result if present
+    nested_result = result.get("result", result)
 
-    if isinstance(
-        nested_result,
-        str
-    ):
+    if isinstance(nested_result, str):
+        nested_result = safe_json_loads(nested_result)
 
-        nested_result = safe_json_loads(
-            nested_result
-        )
-
-        if nested_result is None:
-            return {}
-
-    if not isinstance(
-        nested_result,
-        dict
-    ):
-
+    if not isinstance(nested_result, dict):
         return {}
 
-    emails = nested_result.get(
-        "emails",
-        []
-    )
+    # Support both EMAIL_HR output formats:
+    # 1. result contains an "emails" list
+    # 2. result directly contains subject and body2
 
-    if (
-        not isinstance(
-            emails,
-            list
-        )
-        or
-        not emails
+    emails = nested_result.get("emails")
+
+    if isinstance(emails, list) and emails:
+        email_data = emails[0]
+
+    elif any(
+        key in nested_result
+        for key in ("subject", "Subject", "body1", "body2", "body")
     ):
+        email_data = nested_result
 
+    else:
         return {}
 
-    email_data = emails[0]
-
-    if not isinstance(
-        email_data,
-        dict
-    ):
-
+    if not isinstance(email_data, dict):
         return {}
 
     return {
-        "name":
-            email_data.get(
-                "name"
-            ),
+        "name": (
+            email_data.get("name")
+            or email_data.get("Name")
+        ),
 
-        "subject":
-            email_data.get(
-                "subject"
-            ),
+        "subject": (
+            email_data.get("subject")
+            or email_data.get("Subject")
+        ),
 
-        "body1":
-            email_data.get(
-                "body1"
-            ),
+        "body1": email_data.get("body1"),
 
-        "body2":
-            email_data.get(
-                "body2"
-            )
+        "body2": (
+            email_data.get("body2")
+            or email_data.get("body")
+        )
     }
-
 
 # ============================================================
 # EMAIL FLOW
@@ -13277,7 +13221,7 @@ def marketing_intelligence_hr(
         }
         
 
-        # ========================================================
+    # ========================================================
     # 20A. GET MARKETING OUTPUT
     # ========================================================
 
@@ -13289,7 +13233,7 @@ def marketing_intelligence_hr(
     )
 
     # ========================================================
-    # 20B. PARSE MARKETING OUTPUT
+    # 20B. REMOVE ONLY OUTER CURLY BRACES
     # ========================================================
 
     if isinstance(
@@ -13297,23 +13241,21 @@ def marketing_intelligence_hr(
         str
     ):
 
-        try:
-
-            marketing_output_parsed = json.loads(
-                marketing_output
-            )
-
-        except json.JSONDecodeError:
-
-            marketing_output_parsed = (
-                marketing_output
-            )
-
-    else:
-
-        marketing_output_parsed = (
+        marketing_output = (
             marketing_output
+            .strip()
         )
+
+        if (
+            marketing_output.startswith("{")
+            and
+            marketing_output.endswith("}")
+        ):
+
+            marketing_output = (
+                marketing_output[1:-1]
+                .strip()
+            )
 
     # ========================================================
     # 21. RETURN FINAL RESULT
@@ -13340,10 +13282,10 @@ def marketing_intelligence_hr(
             None,
 
         "result_summary":
-            marketing_output_parsed,
+            marketing_output,
 
         "final_response":
-            marketing_intelligence_result
+            marketing_output
     }
 
 # ============================================================
